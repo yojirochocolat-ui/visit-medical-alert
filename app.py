@@ -48,7 +48,6 @@ def generate_50_kagawa_patients():
     first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "修", "由美子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
-    # 香川県各地の拠点（住所, 基準緯度, 基準経度）
     kagawa_spots = [
         ("香川県高松市番町1丁目", 34.3427, 134.0465),
         ("香川県高松市瓦町2丁目", 34.3385, 134.0520),
@@ -80,7 +79,6 @@ def generate_50_kagawa_patients():
         addr = f"{spot_addr}{random.randint(1, 99)}番地"
         doc = random.choice(doctors)
         tel = f"090-{random.randint(1000,9999)}-{random.randint(1000,9999)}"
-        # 少しランダムに座標を散らしてプロットを重ねないようにする
         lat = base_lat + random.uniform(-0.008, 0.008)
         lon = base_lon + random.uniform(-0.008, 0.008)
         
@@ -170,7 +168,6 @@ for idx, row in df_patients.iterrows():
 
 df_result = pd.DataFrame(results)
 
-# 停電リスク者を最上位に自動ソート
 df_result["sort_key"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result = df_result.sort_values("sort_key").drop(columns=["sort_key"])
 
@@ -178,7 +175,6 @@ df_result = df_result.sort_values("sort_key").drop(columns=["sort_key"])
 # 6. 地図オブジェクト（Folium）の生成関数
 # ---------------------------------------------------------
 def build_map(df):
-    # 香川県中心付近（高松市）を中心位置に設定
     m = folium.Map(location=[34.3000, 133.9500], zoom_start=10)
     
     for _, row in df.iterrows():
@@ -213,7 +209,6 @@ if len(alerts) > 0:
 else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
-# 表のスタイル設定
 def highlight_outage(val):
     if "⚠️" in str(val):
         return "background-color: #ffcccc; font-weight: bold; color: #990000;"
@@ -228,7 +223,7 @@ if layout_option == "左右に並べて表示 (PC・大画面向け)":
     with col1:
         st.markdown("#### 📋 患者リスト (優先ソート済み)")
         st.dataframe(
-            df_result[display_cols].style.applymap(highlight_outage, subset=["停電リスク"]),
+            df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]),
             use_container_width=True,
             height=500
         )
@@ -244,7 +239,7 @@ else:
     
     with tab1:
         st.dataframe(
-            df_result[display_cols].style.applymap(highlight_outage, subset=["停電リスク"]),
+            df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]),
             use_container_width=True,
             height=500
         )
