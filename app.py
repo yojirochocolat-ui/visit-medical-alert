@@ -8,6 +8,7 @@ import folium
 from streamlit_folium import st_folium
 import io
 import os
+from datetime import datetime
 
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
@@ -50,7 +51,7 @@ def fetch_outage_info():
         return []
 
 # ---------------------------------------------------------
-# 2. 香川県全域のダミー患者データ生成（同姓同名排除・装置/バッテリ追加）
+# 2. 香川県全域のダミー患者データ生成（同姓同名排除・装置/バッテリ記号化）
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
@@ -82,7 +83,6 @@ def generate_50_kagawa_patients():
         ("香川県小豆郡土庄町", 34.4860, 134.1750),
     ]
     
-    # 装置の選択肢と重み付け（「なし」を多めに設定）
     device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
     device_weights = [0.5, 0.2, 0.15, 0.15]
     
@@ -91,7 +91,6 @@ def generate_50_kagawa_patients():
     random.seed(42)
     
     for i in range(1, 51):
-        # 同姓同名が被らないよう重複チェック
         while True:
             name = f"{random.choice(last_names)} {random.choice(first_names)}"
             if name not in used_names:
@@ -106,13 +105,11 @@ def generate_50_kagawa_patients():
         lat = base_lat + random.uniform(-0.008, 0.008)
         lon = base_lon + random.uniform(-0.008, 0.008)
         
-        # 使用装置とバッテリの割り当て
         device = random.choices(device_options, weights=device_weights)[0]
         if device == "なし":
-            battery = "なし"
+            battery = "ー"
         else:
-            # 装置保有者は8割の確率で「あり」、2割で「なし」
-            battery = "あり" if random.random() < 0.8 else "なし"
+            battery = random.choices(["○", "ー", "？"], weights=[0.7, 0.1, 0.2])[0]
         
         patients.append({
             "ID": p_id, "患者名": name, "住所": addr, 
@@ -189,7 +186,7 @@ for idx, row in df_patients.iterrows():
         "患者名": row["患者名"],
         "住所": row["住所"],
         "使用装置": row.get("使用装置", "なし"),
-        "バッテリ": row.get("バッテリ", "なし"),
+        "バッテリ": row.get("バッテリ", "ー"),
         "担当医": row.get("担当医", "-"),
         "連絡先": row.get("連絡先", "-"),
         "lat": row.get("lat", 34.3400),
@@ -201,6 +198,9 @@ for idx, row in df_patients.iterrows():
 df_result = pd.DataFrame(results)
 df_result["sort_key"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result = df_result.sort_values("sort_key").drop(columns=["sort_key"])
+
+# 現在日時の取得（yyyy/MM/DD hh:mm）
+created_time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
 # ---------------------------------------------------------
 # 5. 地図描画関数
@@ -231,7 +231,7 @@ def build_map(df, target_only=False):
             <b>【{row['停電リスク']}】</b><br>
             <b>氏名:</b> {row['患者名']}<br>
             <b>住所:</b> {row['住所']}<br>
-            <b>装置:</b> {row['使用装置']} (予備バッテリ: {row['バッテリ']})<br>
+            <b>装置:</b> {row['使用装置']} (バッテリ: {row['バッテリ']})<br>
             <b>担当:</b> {row['担当医']}<br>
             <b>TEL:</b> {row['連絡先']}
         </div>
@@ -239,7 +239,7 @@ def build_map(df, target_only=False):
         folium.Marker(
             location=[row["lat"], row["lon"]],
             popup=folium.Popup(popup_html, max_width=220),
-            tooltip=f"{'⚠️[停電]' if is_alert else '🟢'} {row['患者名']} 様（{row['使用装置']}）",
+            tooltip=f"{'⚠️[停電]' if is_alert else '🟢'} {row['患者名']} 様（{row['使用装置']} / バッテリ:{row['バッテリ']}）",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         ).add_to(m)
     return m
@@ -261,7 +261,7 @@ def register_japanese_font():
         pdfmetrics.registerFont(TTFont(font_name, font_path))
     return font_name
 
-def create_pdf_report(df_alert_patients):
+def create_pdf_report(df_alert_patients, created_time):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, 
@@ -285,8 +285,8 @@ def create_pdf_report(df_alert_patients):
         fontName=font_name, fontSize=7.5, leading=10
     )
 
-    story.append(Paragraph("【緊急対応指図書】停電可能性対象患者リスト", title_style))
-    story.append(Paragraph(f"対象件数: {len(df_alert_patients)} 名 / 出力日時: リアルタイム自動生成", normal_style))
+    story.append(Paragraph("【緊急対応確認】停電可能性患者リスト", title_style))
+    story.append(Paragraph(f"<b>作成日時: {created_time} 作成</b> | 対象件数: {len(df_alert_patients)} 名", normal_style))
     story.append(Paragraph("※拡大マップやルート検索はダウンロードした「HTMLマップ」をご活用ください。", normal_style))
     story.append(Spacer(1, 10))
 
@@ -305,7 +305,7 @@ def create_pdf_report(df_alert_patients):
             Paragraph(str(row["連絡先"]), cell_style)
         ])
 
-    t = Table(table_data, colWidths=[30, 55, 60, 160, 70, 45, 55, 75])
+    t = Table(table_data, colWidths=[30, 55, 60, 160, 70, 40, 55, 80])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -327,6 +327,7 @@ def get_html_map_download(m):
 # 7. 画面表示エリア
 # ---------------------------------------------------------
 st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
+st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
 
 df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
 
@@ -335,7 +336,7 @@ if len(alerts) > 0:
     
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
-        pdf_data = create_pdf_report(df_alert_only)
+        pdf_data = create_pdf_report(df_alert_only, created_time_str)
         st.download_button(
             label="📄 1. 停電対象者リスト（PDF）をDL",
             data=pdf_data,
@@ -401,7 +402,8 @@ if st.button("📧 対象患者のアラート通知を一括送信"):
 {row['担当医']} 先生
 
 {row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
-使用装置: {row['使用装置']} (予備バッテリ: {row['バッテリ']})
+作成日時: {created_time_str}
+使用装置: {row['使用装置']} (バッテリ: {row['バッテリ']})
 
 有事の初動対応および安否・医療機器の動作確認をお願いいたします。
             """, language="text")
