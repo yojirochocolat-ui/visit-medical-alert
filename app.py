@@ -6,6 +6,16 @@ import re
 import random
 import folium
 from streamlit_folium import st_folium
+import io
+
+# PDF生成用ライブラリ
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 st.set_page_config(page_title="訪問医療用停電アラート", layout="wide")
 
@@ -40,7 +50,7 @@ def fetch_outage_info():
         return []
 
 # ---------------------------------------------------------
-# 2. 香川県全域（8市5町）のダミー患者データ（緯度経度付き）
+# 2. 香川県全域のダミー患者データ生成
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
@@ -78,7 +88,7 @@ def generate_50_kagawa_patients():
         name = f"{random.choice(last_names)} {random.choice(first_names)}"
         addr = f"{spot_addr}{random.randint(1, 99)}番地"
         doc = random.choice(doctors)
-        tel = f"090-{random.randint(1000,9999)}-{random.randint(1000,9999)}"
+        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}XX"
         lat = base_lat + random.uniform(-0.008, 0.008)
         lon = base_lon + random.uniform(-0.008, 0.008)
         
@@ -89,7 +99,7 @@ def generate_50_kagawa_patients():
     return patients
 
 # ---------------------------------------------------------
-# 3. サイドバー：モード ＆ 表示レイアウト設定
+# 3. サイドバー設定
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
@@ -110,7 +120,7 @@ else:
     st.sidebar.success("香川県内ダミーデータ（50名分）を使用中")
 
 # ---------------------------------------------------------
-# 4. 停電データの準備
+# 4. 停電データの照合準備
 # ---------------------------------------------------------
 outage_data = []
 
@@ -118,7 +128,7 @@ if mode == "🧪 仮想シミュレーションモード":
     st.subheader("1. 🧪 停電エリア・シミュレーター")
     sim_input = st.text_input(
         "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
-        value="高松市番町, 丸亀市大手町"
+        value="高松市番町, 宇多津町"
     )
     areas = [a.strip() for a in sim_input.split(",") if a.strip()]
     for area in areas:
@@ -134,9 +144,6 @@ else:
     else:
         st.warning("現在、四国電力Webサイト上に該当する停電情報はありません。")
 
-# ---------------------------------------------------------
-# 5. 患者照合 & ソート処理
-# ---------------------------------------------------------
 def check_outage(address, outage_list):
     for item in outage_list:
         city_clean = re.sub(r".*郡", "", item["city"])
@@ -164,20 +171,30 @@ for idx, row in df_patients.iterrows():
         "lon": row.get("lon", 134.0450)
     })
     if is_outage:
-        alerts.append((row["患者名"], row["住所"], row.get("担当医", "担当医")))
+        alerts.append(row)
 
 df_result = pd.DataFrame(results)
-
 df_result["sort_key"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result = df_result.sort_values("sort_key").drop(columns=["sort_key"])
 
 # ---------------------------------------------------------
-# 6. 地図オブジェクト（Folium）の生成関数
+# 5. 地図描画関数
 # ---------------------------------------------------------
-def build_map(df):
-    m = folium.Map(location=[34.3000, 133.9500], zoom_start=10)
+def build_map(df, target_only=False):
+    if target_only:
+        display_df = df[df["停電リスク"].str.contains("⚠️")]
+    else:
+        display_df = df
+
+    if not display_df.empty:
+        center_lat = display_df["lat"].mean()
+        center_lon = display_df["lon"].mean()
+    else:
+        center_lat, center_lon = 34.3000, 133.9500
+        
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
     
-    for _, row in df.iterrows():
+    for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         color = "red" if is_alert else "green"
         icon_type = "exclamation-triangle" if is_alert else "user"
@@ -200,12 +217,67 @@ def build_map(df):
     return m
 
 # ---------------------------------------------------------
-# 7. 表示エリア（レイアウト切替対応）
+# 6. PDFレポート生成機能（停電対象者のみ）
+# ---------------------------------------------------------
+def create_pdf_report(df_alert_patients):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    story = []
+
+    # シンプルなフォントスタイル
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, spaceAfter=10)
+    normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontSize=9, leading=12)
+
+    story.append(Paragraph("<b>【緊急対応指図書】停電可能性対象患者リスト</b>", title_style))
+    story.append(Paragraph(f"対象件数: {len(df_alert_patients)} 名 / 出力日時: リアルタイム自動生成", normal_style))
+    story.append(Spacer(1, 15))
+
+    # テーブルデータ構築
+    table_data = [["ID", "患者名", "検知エリア", "住所", "担当医", "連絡先"]]
+    for _, row in df_alert_patients.iterrows():
+        table_data.append([
+            str(row["ID"]),
+            str(row["患者名"]),
+            str(row["検知エリア"]),
+            str(row["住所"]),
+            str(row["担当医"]),
+            str(row["連絡先"])
+        ])
+
+    t = Table(table_data, colWidths=[35, 60, 70, 200, 60, 80])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
+    ]))
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# ---------------------------------------------------------
+# 7. 画面表示エリア
 # ---------------------------------------------------------
 st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
 
+df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
+
 if len(alerts) > 0:
     st.error(f"🚨 停電エリア内に該当する患者が **{len(alerts)} 名** ピックアップされました！")
+    
+    # PDFダウンロードボタンの設置
+    pdf_data = create_pdf_report(df_alert_only)
+    st.download_button(
+        label="📄 停電可能性患者リスト＆マップ指示書（PDF）をダウンロード",
+        data=pdf_data,
+        file_name="停電リスク対象患者リスト.pdf",
+        mime="application/pdf"
+    )
 else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
@@ -216,40 +288,28 @@ def highlight_outage(val):
 
 display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "住所", "担当医", "連絡先"]
 
-# --- 表示パターン A: 左右並列表示 (PC向け) ---
 if layout_option == "左右に並べて表示 (PC・大画面向け)":
     col1, col2 = st.columns([6, 5])
-    
     with col1:
-        st.markdown("#### 📋 患者リスト (優先ソート済み)")
-        st.dataframe(
-            df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]),
-            use_container_width=True,
-            height=500
-        )
-        
+        st.markdown("#### 📋 患者リスト (全体)")
+        st.dataframe(df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]), use_container_width=True, height=500)
     with col2:
         st.markdown("#### 🗺️ 訪問エリアマップ (赤:停電 / 緑:正常)")
         m = build_map(df_result)
         st_folium(m, width="100%", height=500)
-
-# --- 表示パターン B: タブ切替表示 (スマホ向け) ---
 else:
-    tab1, tab2 = st.tabs(["📋 リスト表示", "🗺️ マップ表示"])
-    
+    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(全体)", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみマップ"])
     with tab1:
-        st.dataframe(
-            df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]),
-            use_container_width=True,
-            height=500
-        )
-        
+        st.dataframe(df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]), use_container_width=True, height=500)
     with tab2:
-        m = build_map(df_result)
+        m = build_map(df_result, target_only=False)
         st_folium(m, width="100%", height=500)
+    with tab3:
+        m_target = build_map(df_result, target_only=True)
+        st_folium(m_target, width="100%", height=500)
 
 # ---------------------------------------------------------
-# 8. アナウンス通知機能
+# 8. アナウンス通知機能（デモ表示のみ）
 # ---------------------------------------------------------
 st.subheader("3. 初動用アナウンスメール送信（デモ）")
 target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
@@ -257,14 +317,14 @@ target_email = st.text_input("送信先医師のメールアドレス", value="d
 if st.button("📧 対象患者のアラート通知を一括送信"):
     if len(alerts) > 0:
         st.write("**【医師へ送信される自動アナウンスプレビュー】**")
-        for name, addr, doc in alerts:
+        for idx, row in df_alert_only.iterrows():
             st.code(f"""
-件名: 【緊急停電アラート】担当患者の地域で停電検知（{name} 様）
-宛先: {target_email} ({doc}御中)
+件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様）
+宛先: {target_email} ({row['担当医']}御中)
 
-{doc} 先生
+{row['担当医']} 先生
 
-{name} 様の居住地域（{addr}）にて停電が発生している可能性があります。
+{row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
 有事の初動対応および安否・医療機器（在宅酸素等）の動作確認をお願いいたします。
             """, language="text")
         st.success(f"✅ {len(alerts)} 件の通知メッセージを作成・送信処理（デモ）しました。")
