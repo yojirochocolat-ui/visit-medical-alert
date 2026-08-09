@@ -7,13 +7,13 @@ import random
 import folium
 from streamlit_folium import st_folium
 import io
+import os
 
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
-from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
@@ -217,41 +217,74 @@ def build_map(df, target_only=False):
     return m
 
 # ---------------------------------------------------------
-# 6. PDFレポート生成機能（停電対象者のみ）
+# 6. 日本語対応 PDFレポート生成機能
 # ---------------------------------------------------------
+def register_japanese_font():
+    font_name = "IPAGothic"
+    if font_name not in pdfmetrics.getRegisteredFontNames():
+        font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+        # IPAゴシックなどの標準的な軽量TTFフォントをダウンロード
+        ttf_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/sawarabigothic/SawarabiGothic-Regular.ttf"
+        font_path = "SawarabiGothic-Regular.ttf"
+        
+        if not os.path.exists(font_path):
+            res = requests.get(ttf_url, timeout=10)
+            with open(font_path, "wb") as f:
+                f.write(res.content)
+                
+        pdfmetrics.registerFont(TTFont(font_name, font_path))
+    return font_name
+
 def create_pdf_report(df_alert_patients):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4, 
+        rightMargin=25, leftMargin=25, topMargin=30, bottomMargin=30
+    )
     story = []
 
-    # シンプルなフォントスタイル
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontSize=16, spaceAfter=10)
-    normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontSize=9, leading=12)
+    # 日本語フォント準備
+    font_name = register_japanese_font()
 
-    story.append(Paragraph("<b>【緊急対応指図書】停電可能性対象患者リスト</b>", title_style))
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle', parent=styles['Heading1'], 
+        fontName=font_name, fontSize=16, leading=20, spaceAfter=10
+    )
+    normal_style = ParagraphStyle(
+        'NormalStyle', parent=styles['Normal'], 
+        fontName=font_name, fontSize=9, leading=13
+    )
+    cell_style = ParagraphStyle(
+        'CellStyle', parent=styles['Normal'], 
+        fontName=font_name, fontSize=8, leading=11
+    )
+
+    story.append(Paragraph("【緊急対応指図書】停電可能性対象患者リスト", title_style))
     story.append(Paragraph(f"対象件数: {len(df_alert_patients)} 名 / 出力日時: リアルタイム自動生成", normal_style))
     story.append(Spacer(1, 15))
 
-    # テーブルデータ構築
-    table_data = [["ID", "患者名", "検知エリア", "住所", "担当医", "連絡先"]]
+    # テーブルデータ構築（長文住所も自動折り返しされるようParagraphでラップ）
+    headers = ["ID", "患者名", "検知エリア", "住所", "担当医", "連絡先"]
+    table_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('HeaderStyle', parent=cell_style, textColor=colors.whitesmoke)) for h in headers]]
+    
     for _, row in df_alert_patients.iterrows():
         table_data.append([
-            str(row["ID"]),
-            str(row["患者名"]),
-            str(row["検知エリア"]),
-            str(row["住所"]),
-            str(row["担当医"]),
-            str(row["連絡先"])
+            Paragraph(str(row["ID"]), cell_style),
+            Paragraph(str(row["患者名"]), cell_style),
+            Paragraph(str(row["検知エリア"]), cell_style),
+            Paragraph(str(row["住所"]), cell_style),
+            Paragraph(str(row["担当医"]), cell_style),
+            Paragraph(str(row["連絡先"]), cell_style)
         ])
 
-    t = Table(table_data, colWidths=[35, 60, 70, 200, 60, 80])
+    t = Table(table_data, colWidths=[35, 60, 75, 200, 60, 85])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
     ]))
@@ -273,7 +306,7 @@ if len(alerts) > 0:
     # PDFダウンロードボタンの設置
     pdf_data = create_pdf_report(df_alert_only)
     st.download_button(
-        label="📄 停電可能性患者リスト＆マップ指示書（PDF）をダウンロード",
+        label="📄 停電可能性患者リスト指示書（PDF）をダウンロード",
         data=pdf_data,
         file_name="停電リスク対象患者リスト.pdf",
         mime="application/pdf"
