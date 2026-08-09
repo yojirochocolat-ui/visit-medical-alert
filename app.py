@@ -8,7 +8,10 @@ import folium
 from streamlit_folium import st_folium
 import io
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+# 日本時間（JST）の定義
+JST = timezone(timedelta(hours=9))
 
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
@@ -140,25 +143,46 @@ else:
     df_patients = pd.DataFrame(generate_50_kagawa_patients())
     st.sidebar.success("香川県内ダミーデータ（50名分）を使用中")
 
+# セッション状態の初期化
+if "sim_areas" not in st.session_state:
+    st.session_state.sim_areas = ["高松市番町", "宇多津町"]
+if "sim_created_time" not in st.session_state:
+    st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+
 # ---------------------------------------------------------
 # 4. 停電データの照合準備 & 優先度ソート
 # ---------------------------------------------------------
 outage_data = []
+created_time_str = ""
 
 if mode == "🧪 仮想シミュレーションモード":
     st.subheader("1. 🧪 停電エリア・シミュレーター")
-    sim_input = st.text_input(
-        "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
-        value="高松市番町, 宇多津町"
-    )
-    areas = [a.strip() for a in sim_input.split(",") if a.strip()]
-    for area in areas:
+    
+    col_input, col_btn = st.columns([3, 1])
+    with col_input:
+        sim_input = st.text_input(
+            "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
+            value="高松市番町, 宇多津町"
+        )
+    with col_btn:
+        st.write(" ") # レイアウト調整用余白
+        st.write(" ")
+        if st.button("▶️ シミュレーション実行", use_container_width=True):
+            st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
+            st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.success("シミュレーションを実行・作成日時を更新しました！")
+
+    for area in st.session_state.sim_areas:
         outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
-    st.caption(f"現在のテスト対象エリア: **{', '.join(areas)}**")
+    
+    created_time_str = st.session_state.sim_created_time
+    st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
 
 else:
     st.subheader("1. 🌐 Webリアルタイム停電情報")
     outage_data = fetch_outage_info()
+    created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+    
     if outage_data:
         outage_df_display = [{"都道府県": item["prefecture"], "市区町村": item["city"], "対象町名": item["raw_towns"]} for item in outage_data]
         st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
@@ -200,9 +224,6 @@ for idx, row in df_patients.iterrows():
 df_result = pd.DataFrame(results)
 
 # ソート用のキーを設定
-# 1. 停電リスク：⚠️(0) > 🟢(1)
-# 2. 使用装置：あり(0) > なし(1)
-# 3. バッテリ：ー(0) > ？(1) > ○(2)
 def get_device_order(val):
     return 1 if str(val) == "なし" else 0
 
@@ -224,9 +245,6 @@ df_result["battery_sort"] = df_result["バッテリ"].apply(get_battery_order)
 df_result = df_result.sort_values(
     by=["risk_sort", "device_sort", "battery_sort"]
 ).drop(columns=["risk_sort", "device_sort", "battery_sort"])
-
-# 現在日時の取得（yyyy/MM/DD hh:mm）
-created_time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
 
 # ---------------------------------------------------------
 # 5. 地図描画関数
@@ -332,7 +350,6 @@ def create_pdf_report(df_alert_patients, created_time):
             Paragraph(str(row.get("備考", "")), cell_style)
         ])
 
-    # 総幅約 560 pt
     t = Table(table_data, colWidths=[25, 55, 50, 65, 35, 50, 70, 150, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
