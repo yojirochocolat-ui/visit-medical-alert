@@ -50,12 +50,14 @@ def fetch_outage_info():
         return []
 
 # ---------------------------------------------------------
-# 2. 香川県全域のダミー患者データ生成
+# 2. 香川県全域のダミー患者データ生成（同姓同名排除・装置/バッテリ追加）
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
-    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤"]
-    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "修", "由美子"]
+    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤", 
+                  "吉田", "山田", "佐々木", "山口", "松本", "井上", "木村", "林", "斎藤", "清水"]
+    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "修", "由美子",
+                   "健二", "明美", "大輔", "真由美", "拓也", "香織", "直樹", "裕子", "哲也", "恵"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
     kagawa_spots = [
@@ -80,21 +82,42 @@ def generate_50_kagawa_patients():
         ("香川県小豆郡土庄町", 34.4860, 134.1750),
     ]
     
+    # 装置の選択肢と重み付け（「なし」を多めに設定）
+    device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
+    device_weights = [0.5, 0.2, 0.15, 0.15]
+    
     patients = []
+    used_names = set()
     random.seed(42)
+    
     for i in range(1, 51):
+        # 同姓同名が被らないよう重複チェック
+        while True:
+            name = f"{random.choice(last_names)} {random.choice(first_names)}"
+            if name not in used_names:
+                used_names.add(name)
+                break
+                
         spot_addr, base_lat, base_lon = random.choice(kagawa_spots)
         p_id = f"P{i:03d}"
-        name = f"{random.choice(last_names)} {random.choice(first_names)}"
         addr = f"{spot_addr}{random.randint(1, 99)}番地"
         doc = random.choice(doctors)
         tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}XX"
         lat = base_lat + random.uniform(-0.008, 0.008)
         lon = base_lon + random.uniform(-0.008, 0.008)
         
+        # 使用装置とバッテリの割り当て
+        device = random.choices(device_options, weights=device_weights)[0]
+        if device == "なし":
+            battery = "なし"
+        else:
+            # 装置保有者は8割の確率で「あり」、2割で「なし」
+            battery = "あり" if random.random() < 0.8 else "なし"
+        
         patients.append({
             "ID": p_id, "患者名": name, "住所": addr, 
-            "担当医": doc, "連絡先": tel, "lat": lat, "lon": lon
+            "担当医": doc, "連絡先": tel, "使用装置": device, "バッテリ": battery,
+            "lat": lat, "lon": lon
         })
     return patients
 
@@ -165,6 +188,8 @@ for idx, row in df_patients.iterrows():
         "検知エリア": area_info if is_outage else "-",
         "患者名": row["患者名"],
         "住所": row["住所"],
+        "使用装置": row.get("使用装置", "なし"),
+        "バッテリ": row.get("バッテリ", "なし"),
         "担当医": row.get("担当医", "-"),
         "連絡先": row.get("連絡先", "-"),
         "lat": row.get("lat", 34.3400),
@@ -189,10 +214,12 @@ def build_map(df, target_only=False):
     if not display_df.empty:
         center_lat = display_df["lat"].mean()
         center_lon = display_df["lon"].mean()
+        zoom_level = 14 if target_only else 11
     else:
         center_lat, center_lon = 34.3000, 133.9500
+        zoom_level = 11
         
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=11)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
@@ -200,30 +227,29 @@ def build_map(df, target_only=False):
         icon_type = "exclamation-triangle" if is_alert else "user"
         
         popup_html = f"""
-        <div style='font-size:12px; width:180px;'>
+        <div style='font-size:12px; width:200px;'>
             <b>【{row['停電リスク']}】</b><br>
             <b>氏名:</b> {row['患者名']}<br>
             <b>住所:</b> {row['住所']}<br>
+            <b>装置:</b> {row['使用装置']} (予備バッテリ: {row['バッテリ']})<br>
             <b>担当:</b> {row['担当医']}<br>
             <b>TEL:</b> {row['連絡先']}
         </div>
         """
         folium.Marker(
             location=[row["lat"], row["lon"]],
-            popup=folium.Popup(popup_html, max_width=200),
-            tooltip=f"{'⚠️[停電]' if is_alert else '🟢'} {row['患者名']} 様",
+            popup=folium.Popup(popup_html, max_width=220),
+            tooltip=f"{'⚠️[停電]' if is_alert else '🟢'} {row['患者名']} 様（{row['使用装置']}）",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         ).add_to(m)
     return m
 
 # ---------------------------------------------------------
-# 6. 日本語対応 PDFレポート生成機能
+# 6. 日本語対応 PDFレポート & HTMLマップ生成機能
 # ---------------------------------------------------------
 def register_japanese_font():
     font_name = "IPAGothic"
     if font_name not in pdfmetrics.getRegisteredFontNames():
-        font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
-        # IPAゴシックなどの標準的な軽量TTFフォントをダウンロード
         ttf_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/sawarabigothic/SawarabiGothic-Regular.ttf"
         font_path = "SawarabiGothic-Regular.ttf"
         
@@ -239,33 +265,32 @@ def create_pdf_report(df_alert_patients):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, 
-        rightMargin=25, leftMargin=25, topMargin=30, bottomMargin=30
+        rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25
     )
     story = []
 
-    # 日本語フォント準備
     font_name = register_japanese_font()
 
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'TitleStyle', parent=styles['Heading1'], 
-        fontName=font_name, fontSize=16, leading=20, spaceAfter=10
+        fontName=font_name, fontSize=15, leading=18, spaceAfter=8
     )
     normal_style = ParagraphStyle(
         'NormalStyle', parent=styles['Normal'], 
-        fontName=font_name, fontSize=9, leading=13
+        fontName=font_name, fontSize=8, leading=11
     )
     cell_style = ParagraphStyle(
         'CellStyle', parent=styles['Normal'], 
-        fontName=font_name, fontSize=8, leading=11
+        fontName=font_name, fontSize=7.5, leading=10
     )
 
     story.append(Paragraph("【緊急対応指図書】停電可能性対象患者リスト", title_style))
     story.append(Paragraph(f"対象件数: {len(df_alert_patients)} 名 / 出力日時: リアルタイム自動生成", normal_style))
-    story.append(Spacer(1, 15))
+    story.append(Paragraph("※拡大マップやルート検索はダウンロードした「HTMLマップ」をご活用ください。", normal_style))
+    story.append(Spacer(1, 10))
 
-    # テーブルデータ構築（長文住所も自動折り返しされるようParagraphでラップ）
-    headers = ["ID", "患者名", "検知エリア", "住所", "担当医", "連絡先"]
+    headers = ["ID", "患者名", "検知エリア", "住所", "使用装置", "バッテリ", "担当医", "連絡先"]
     table_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('HeaderStyle', parent=cell_style, textColor=colors.whitesmoke)) for h in headers]]
     
     for _, row in df_alert_patients.iterrows():
@@ -274,17 +299,19 @@ def create_pdf_report(df_alert_patients):
             Paragraph(str(row["患者名"]), cell_style),
             Paragraph(str(row["検知エリア"]), cell_style),
             Paragraph(str(row["住所"]), cell_style),
+            Paragraph(str(row["使用装置"]), cell_style),
+            Paragraph(str(row["バッテリ"]), cell_style),
             Paragraph(str(row["担当医"]), cell_style),
             Paragraph(str(row["連絡先"]), cell_style)
         ])
 
-    t = Table(table_data, colWidths=[35, 60, 75, 200, 60, 85])
+    t = Table(table_data, colWidths=[30, 55, 60, 160, 70, 45, 55, 75])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
     ]))
@@ -292,6 +319,9 @@ def create_pdf_report(df_alert_patients):
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+def get_html_map_download(m):
+    return m._repr_html_()
 
 # ---------------------------------------------------------
 # 7. 画面表示エリア
@@ -303,14 +333,26 @@ df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
 if len(alerts) > 0:
     st.error(f"🚨 停電エリア内に該当する患者が **{len(alerts)} 名** ピックアップされました！")
     
-    # PDFダウンロードボタンの設置
-    pdf_data = create_pdf_report(df_alert_only)
-    st.download_button(
-        label="📄 停電可能性患者リスト指示書（PDF）をダウンロード",
-        data=pdf_data,
-        file_name="停電リスク対象患者リスト.pdf",
-        mime="application/pdf"
-    )
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        pdf_data = create_pdf_report(df_alert_only)
+        st.download_button(
+            label="📄 1. 停電対象者リスト（PDF）をDL",
+            data=pdf_data,
+            file_name="停電リスク対象患者リスト.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    with col_dl2:
+        m_target_dl = build_map(df_result, target_only=True)
+        html_data = get_html_map_download(m_target_dl)
+        st.download_button(
+            label="🗺️ 2. 停電対象のみ拡大訪問マップ（HTML）をDL",
+            data=html_data,
+            file_name="停電対象者_拡大訪問マップ.html",
+            mime="text/html",
+            use_container_width=True
+        )
 else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
@@ -319,7 +361,7 @@ def highlight_outage(val):
         return "background-color: #ffcccc; font-weight: bold; color: #990000;"
     return ""
 
-display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "住所", "担当医", "連絡先"]
+display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "住所", "使用装置", "バッテリ", "担当医", "連絡先"]
 
 if layout_option == "左右に並べて表示 (PC・大画面向け)":
     col1, col2 = st.columns([6, 5])
@@ -331,13 +373,14 @@ if layout_option == "左右に並べて表示 (PC・大画面向け)":
         m = build_map(df_result)
         st_folium(m, width="100%", height=500)
 else:
-    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(全体)", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみマップ"])
+    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(全体)", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみ拡大マップ"])
     with tab1:
         st.dataframe(df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]), use_container_width=True, height=500)
     with tab2:
         m = build_map(df_result, target_only=False)
         st_folium(m, width="100%", height=500)
     with tab3:
+        st.markdown("※緑ピン（正常）を非表示にし、停電対象エリアを自動拡大して表示しています。")
         m_target = build_map(df_result, target_only=True)
         st_folium(m_target, width="100%", height=500)
 
@@ -358,7 +401,9 @@ if st.button("📧 対象患者のアラート通知を一括送信"):
 {row['担当医']} 先生
 
 {row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
-有事の初動対応および安否・医療機器（在宅酸素等）の動作確認をお願いいたします。
+使用装置: {row['使用装置']} (予備バッテリ: {row['バッテリ']})
+
+有事の初動対応および安否・医療機器の動作確認をお願いいたします。
             """, language="text")
         st.success(f"✅ {len(alerts)} 件の通知メッセージを作成・送信処理（デモ）しました。")
     else:
