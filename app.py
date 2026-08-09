@@ -404,8 +404,8 @@ def get_html_map_download(m):
 # 7. 画面表示エリア
 # ---------------------------------------------------------
 
-# 見出しと表示スタイル切替を同じ行に横並び配置
-header_col, style_col = st.columns([3, 2])
+# 見出しのすぐ横にコンパクトに配置（比率を自動調整）
+header_col, style_col = st.columns([1, 1])
 
 with header_col:
     st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
@@ -414,7 +414,7 @@ with style_col:
     layout_option = st.radio(
         "表示スタイル", 
         ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
-        horizontal=True,
+        horizontal=False,  # 上下（縦）並びに設定
         label_visibility="collapsed"
     )
 
