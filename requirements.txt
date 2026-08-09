@@ -1,7 +1,8 @@
 streamlit
 pandas
-beautifulsoup4
 requests
-openpyxl
+beautifulsoup4
 folium
 streamlit-folium
+reportlab
+openpyxl
