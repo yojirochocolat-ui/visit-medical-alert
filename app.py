@@ -54,52 +54,30 @@ def fetch_outage_info():
         return []
 
 # ---------------------------------------------------------
-# 2. 香川県全域のダミー患者データ生成
+# 2. ダミーデータ・サンプルデータ生成関数
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
-    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤", 
-                  "吉田", "山田", "佐々木", "山口", "松本", "井上", "木村", "林", "斎藤", "清水"]
-    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "修", "由美子",
-                   "健二", "明美", "大輔", "真由美", "拓也", "香織", "直樹", "裕子", "哲也", "恵"]
+    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤"]
+    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
     kagawa_spots = [
         ("香川県高松市番町1丁目", 34.3427, 134.0465),
         ("香川県高松市瓦町2丁目", 34.3385, 134.0520),
         ("香川県高松市栗林町1丁目", 34.3295, 134.0470),
-        ("香川県高松市木太町", 34.3330, 134.0750),
-        ("香川県高松市太田上町", 34.3050, 134.0500),
         ("香川県丸亀市大手町1丁目", 34.2890, 133.7970),
-        ("香川県丸亀市綾歌町富熊", 34.2320, 133.8450),
-        ("香川県坂出市室町", 34.3160, 133.8560),
-        ("香川県善通寺市文京町2丁目", 34.2260, 133.7840),
-        ("香川県観音寺市坂本町1丁目", 34.1270, 133.6530),
-        ("香川県さぬき市志度", 34.3210, 134.1730),
-        ("香川県東かがわ市三本松", 34.2530, 134.3480),
-        ("香川県三豊市高瀬町新名", 34.1840, 133.7050),
-        ("香川県木田郡三木町氷上", 34.2700, 134.1300),
         ("香川県綾歌郡宇多津町濱五番丁", 34.3080, 133.8150),
-        ("香川県綾歌郡綾川町滝宮", 34.2500, 133.9180),
-        ("香川県仲多度郡琴平町", 34.1890, 133.8180),
-        ("香川県仲多度郡多度津町家中", 34.2710, 133.7530),
-        ("香川県小豆郡土庄町", 34.4860, 134.1750),
     ]
     
     device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
     device_weights = [0.5, 0.2, 0.15, 0.15]
     
     patients = []
-    used_names = set()
     random.seed(42)
     
     for i in range(1, 51):
-        while True:
-            name = f"{random.choice(last_names)} {random.choice(first_names)}"
-            if name not in used_names:
-                used_names.add(name)
-                break
-                
+        name = f"{random.choice(last_names)} {random.choice(first_names)}"
         spot_addr, base_lat, base_lon = random.choice(kagawa_spots)
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 99)}番地"
@@ -109,39 +87,92 @@ def generate_50_kagawa_patients():
         lon = base_lon + random.uniform(-0.008, 0.008)
         
         device = random.choices(device_options, weights=device_weights)[0]
-        if device == "なし":
-            battery = "ー"
-        else:
-            battery = random.choices(["○", "ー", "？"], weights=[0.7, 0.1, 0.2])[0]
+        battery = "ー" if device == "なし" else random.choice(["○", "ー", "？"])
         
         patients.append({
             "ID": p_id, "患者名": name, "住所": addr, 
             "担当医": doc, "連絡先": tel, "使用装置": device, "バッテリ": battery,
-            "備考": "",
-            "lat": lat, "lon": lon
+            "備考": "", "lat": lat, "lon": lon
         })
     return patients
 
+# 雛形（フォーマット）Excelの生成関数
+def generate_template_excel():
+    sample_data = [
+        {
+            "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市番町1丁目1番地",
+            "担当医": "佐藤医師", "連絡先": "090-1234-5678", "使用装置": "人工呼吸器",
+            "バッテリ": "○", "備考": "要緊急確認", "lat": 34.3427, "lon": 134.0465
+        },
+        {
+            "ID": "P002", "患者名": "鈴木 花子", "住所": "香川県綾歌郡宇多津町100番地",
+            "担当医": "高橋医師", "連絡先": "090-9876-5432", "使用装置": "なし",
+            "バッテリ": "ー", "備考": "", "lat": 34.3080, "lon": 133.8150
+        }
+    ]
+    df_template = pd.DataFrame(sample_data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_template.to_excel(writer, index=False, sheet_name='患者リスト')
+    output.seek(0)
+    return output
+
 # ---------------------------------------------------------
-# 3. サイドバー設定
+# 3. サイドバー設定 & 調整処理
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
 
 st.sidebar.markdown("---")
-st.sidebar.header("🖥️ 画面レイアウト設定")
+st.sidebar.header("📂 データ読み込み設定")
+
+# 雛形DLボタン
+template_excel = generate_template_excel()
+st.sidebar.download_button(
+    label="📥 記入用フォーマット(Excel)をDL",
+    data=template_excel,
+    file_name="患者リスト_登録フォーマット.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    use_container_width=True
+)
+
+uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)をアップロード", type=["xlsx", "csv"])
+
+if uploaded_file is not None:
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            df_patients = pd.read_csv(uploaded_file)
+        else:
+            df_patients = pd.read_excel(uploaded_file)
+        
+        # 必須列の存在チェックと自動補完（エラー防止）
+        required_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考", "lat", "lon"]
+        for col in required_cols:
+            if col not in df_patients.columns:
+                if col in ["lat", "lon"]:
+                    # 緯度経度がない場合は高松市付近の座標を仮設定
+                    df_patients[col] = 34.3400 if col == "lat" else 134.0450
+                else:
+                    df_patients[col] = "-"
+        
+        # 欠損値（NaN）の補完
+        df_patients["lat"] = pd.to_numeric(df_patients["lat"], errors='coerce').fillna(34.3400)
+        df_patients["lon"] = pd.to_numeric(df_patients["lon"], errors='coerce').fillna(134.0450)
+        df_patients = df_patients.fillna("-")
+        
+        st.sidebar.success("外部ファイルを読み込みました！")
+    except Exception as e:
+        st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
+        df_patients = pd.DataFrame(generate_50_kagawa_patients())
+else:
+    df_patients = pd.DataFrame(generate_50_kagawa_patients())
+    st.sidebar.info("現在はデモ用データ（50名分）を表示中")
+
+st.sidebar.markdown("---")
 layout_option = st.sidebar.radio(
     "画面の表示スタイル", 
     ["左右に並べて表示 (PC・大画面向け)", "タブで切り替えて表示 (スマホ・省スペース向け)"]
 )
-
-uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)", type=["xlsx", "csv"])
-
-if uploaded_file is not None:
-    df_patients = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(".csv") else pd.read_excel(uploaded_file)
-else:
-    df_patients = pd.DataFrame(generate_50_kagawa_patients())
-    st.sidebar.success("香川県内ダミーデータ（50名分）を使用中")
 
 # セッション状態の初期化
 if "sim_areas" not in st.session_state:
@@ -165,7 +196,7 @@ if mode == "🧪 仮想シミュレーションモード":
             value="高松市番町, 宇多津町"
         )
     with col_btn:
-        st.write(" ") # レイアウト調整用余白
+        st.write(" ")
         st.write(" ")
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
@@ -192,10 +223,10 @@ else:
 def check_outage(address, outage_list):
     for item in outage_list:
         city_clean = re.sub(r".*郡", "", item["city"])
-        if city_clean in address:
+        if city_clean in str(address):
             return True, item["city"]
         for town in item["towns"]:
-            if town and town in address:
+            if town and town in str(address):
                 return True, town
     return False, "正常"
 
@@ -215,33 +246,28 @@ for idx, row in df_patients.iterrows():
         "連絡先": row.get("連絡先", "-"),
         "住所": row["住所"],
         "備考": row.get("備考", ""),
-        "lat": row.get("lat", 34.3400),
-        "lon": row.get("lon", 134.0450)
+        "lat": float(row.get("lat", 34.3400)),
+        "lon": float(row.get("lon", 134.0450))
     })
     if is_outage:
         alerts.append(row)
 
 df_result = pd.DataFrame(results)
 
-# ソート用のキーを設定
 def get_device_order(val):
     return 1 if str(val) == "なし" else 0
 
 def get_battery_order(val):
     v = str(val)
-    if v == "ー":
-        return 0
-    elif v == "？":
-        return 1
-    elif v == "○":
-        return 2
+    if v == "ー": return 0
+    elif v == "？": return 1
+    elif v == "○": return 2
     return 3
 
 df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result["device_sort"] = df_result["使用装置"].apply(get_device_order)
 df_result["battery_sort"] = df_result["バッテリ"].apply(get_battery_order)
 
-# 優先度順に並び替え後、ソート用列を削除
 df_result = df_result.sort_values(
     by=["risk_sort", "device_sort", "battery_sort"]
 ).drop(columns=["risk_sort", "device_sort", "battery_sort"])
@@ -289,49 +315,33 @@ def build_map(df, target_only=False):
     return m
 
 # ---------------------------------------------------------
-# 6. 日本語対応 PDFレポート & HTMLマップ生成機能
+# 6. レポート生成処理 (PDF / HTML)
 # ---------------------------------------------------------
 def register_japanese_font():
     font_name = "IPAGothic"
     if font_name not in pdfmetrics.getRegisteredFontNames():
         ttf_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/sawarabigothic/SawarabiGothic-Regular.ttf"
         font_path = "SawarabiGothic-Regular.ttf"
-        
         if not os.path.exists(font_path):
             res = requests.get(ttf_url, timeout=10)
             with open(font_path, "wb") as f:
                 f.write(res.content)
-                
         pdfmetrics.registerFont(TTFont(font_name, font_path))
     return font_name
 
 def create_pdf_report(df_alert_patients, created_time):
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=A4, 
-        rightMargin=15, leftMargin=15, topMargin=20, bottomMargin=20
-    )
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=20, bottomMargin=20)
     story = []
-
     font_name = register_japanese_font()
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'TitleStyle', parent=styles['Heading1'], 
-        fontName=font_name, fontSize=14, leading=17, spaceAfter=8
-    )
-    normal_style = ParagraphStyle(
-        'NormalStyle', parent=styles['Normal'], 
-        fontName=font_name, fontSize=8, leading=11
-    )
-    cell_style = ParagraphStyle(
-        'CellStyle', parent=styles['Normal'], 
-        fontName=font_name, fontSize=7, leading=9.5
-    )
+    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName=font_name, fontSize=14, leading=17, spaceAfter=8)
+    normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontName=font_name, fontSize=8, leading=11)
+    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName=font_name, fontSize=7, leading=9.5)
 
     story.append(Paragraph("【緊急対応確認】停電可能性患者リスト", title_style))
     story.append(Paragraph(f"<b>作成日時: {created_time} 作成</b> | 対象件数: {len(df_alert_patients)} 名", normal_style))
-    story.append(Paragraph("※拡大マップやルート検索はダウンロードした「HTMLマップ」をご活用ください。", normal_style))
     story.append(Spacer(1, 10))
 
     headers = ["ID", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
@@ -355,8 +365,6 @@ def create_pdf_report(df_alert_patients, created_time):
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
     ]))
@@ -431,7 +439,7 @@ else:
         st_folium(m_target, width="100%", height=500)
 
 # ---------------------------------------------------------
-# 8. アナウンス通知機能（デモ表示のみ）
+# 8. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
 st.subheader("3. 初動用アナウンスメール送信（デモ）")
 target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
