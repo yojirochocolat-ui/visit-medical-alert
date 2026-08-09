@@ -51,7 +51,7 @@ def fetch_outage_info():
         return []
 
 # ---------------------------------------------------------
-# 2. 香川県全域のダミー患者データ生成（同姓同名排除・装置/バッテリ記号化）
+# 2. 香川県全域のダミー患者データ生成
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
@@ -114,6 +114,7 @@ def generate_50_kagawa_patients():
         patients.append({
             "ID": p_id, "患者名": name, "住所": addr, 
             "担当医": doc, "連絡先": tel, "使用装置": device, "バッテリ": battery,
+            "備考": "",
             "lat": lat, "lon": lon
         })
     return patients
@@ -140,7 +141,7 @@ else:
     st.sidebar.success("香川県内ダミーデータ（50名分）を使用中")
 
 # ---------------------------------------------------------
-# 4. 停電データの照合準備
+# 4. 停電データの照合準備 & 優先度ソート
 # ---------------------------------------------------------
 outage_data = []
 
@@ -184,11 +185,12 @@ for idx, row in df_patients.iterrows():
         "停電リスク": "⚠️ 停電可能性あり" if is_outage else "🟢 正常",
         "検知エリア": area_info if is_outage else "-",
         "患者名": row["患者名"],
-        "住所": row["住所"],
         "使用装置": row.get("使用装置", "なし"),
         "バッテリ": row.get("バッテリ", "ー"),
         "担当医": row.get("担当医", "-"),
         "連絡先": row.get("連絡先", "-"),
+        "住所": row["住所"],
+        "備考": row.get("備考", ""),
         "lat": row.get("lat", 34.3400),
         "lon": row.get("lon", 134.0450)
     })
@@ -196,8 +198,32 @@ for idx, row in df_patients.iterrows():
         alerts.append(row)
 
 df_result = pd.DataFrame(results)
-df_result["sort_key"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
-df_result = df_result.sort_values("sort_key").drop(columns=["sort_key"])
+
+# ソート用のキーを設定
+# 1. 停電リスク：⚠️(0) > 🟢(1)
+# 2. 使用装置：あり(0) > なし(1)
+# 3. バッテリ：ー(0) > ？(1) > ○(2)
+def get_device_order(val):
+    return 1 if str(val) == "なし" else 0
+
+def get_battery_order(val):
+    v = str(val)
+    if v == "ー":
+        return 0
+    elif v == "？":
+        return 1
+    elif v == "○":
+        return 2
+    return 3
+
+df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
+df_result["device_sort"] = df_result["使用装置"].apply(get_device_order)
+df_result["battery_sort"] = df_result["バッテリ"].apply(get_battery_order)
+
+# 優先度順に並び替え後、ソート用列を削除
+df_result = df_result.sort_values(
+    by=["risk_sort", "device_sort", "battery_sort"]
+).drop(columns=["risk_sort", "device_sort", "battery_sort"])
 
 # 現在日時の取得（yyyy/MM/DD hh:mm）
 created_time_str = datetime.now().strftime("%Y/%m/%d %H:%M")
@@ -230,10 +256,10 @@ def build_map(df, target_only=False):
         <div style='font-size:12px; width:200px;'>
             <b>【{row['停電リスク']}】</b><br>
             <b>氏名:</b> {row['患者名']}<br>
-            <b>住所:</b> {row['住所']}<br>
             <b>装置:</b> {row['使用装置']} (バッテリ: {row['バッテリ']})<br>
             <b>担当:</b> {row['担当医']}<br>
-            <b>TEL:</b> {row['連絡先']}
+            <b>TEL:</b> {row['連絡先']}<br>
+            <b>住所:</b> {row['住所']}
         </div>
         """
         folium.Marker(
@@ -265,7 +291,7 @@ def create_pdf_report(df_alert_patients, created_time):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4, 
-        rightMargin=20, leftMargin=20, topMargin=25, bottomMargin=25
+        rightMargin=15, leftMargin=15, topMargin=20, bottomMargin=20
     )
     story = []
 
@@ -274,7 +300,7 @@ def create_pdf_report(df_alert_patients, created_time):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         'TitleStyle', parent=styles['Heading1'], 
-        fontName=font_name, fontSize=15, leading=18, spaceAfter=8
+        fontName=font_name, fontSize=14, leading=17, spaceAfter=8
     )
     normal_style = ParagraphStyle(
         'NormalStyle', parent=styles['Normal'], 
@@ -282,7 +308,7 @@ def create_pdf_report(df_alert_patients, created_time):
     )
     cell_style = ParagraphStyle(
         'CellStyle', parent=styles['Normal'], 
-        fontName=font_name, fontSize=7.5, leading=10
+        fontName=font_name, fontSize=7, leading=9.5
     )
 
     story.append(Paragraph("【緊急対応確認】停電可能性患者リスト", title_style))
@@ -290,28 +316,30 @@ def create_pdf_report(df_alert_patients, created_time):
     story.append(Paragraph("※拡大マップやルート検索はダウンロードした「HTMLマップ」をご活用ください。", normal_style))
     story.append(Spacer(1, 10))
 
-    headers = ["ID", "患者名", "検知エリア", "住所", "使用装置", "バッテリ", "担当医", "連絡先"]
+    headers = ["ID", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
     table_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('HeaderStyle', parent=cell_style, textColor=colors.whitesmoke)) for h in headers]]
     
     for _, row in df_alert_patients.iterrows():
         table_data.append([
             Paragraph(str(row["ID"]), cell_style),
-            Paragraph(str(row["患者名"]), cell_style),
             Paragraph(str(row["検知エリア"]), cell_style),
-            Paragraph(str(row["住所"]), cell_style),
+            Paragraph(str(row["患者名"]), cell_style),
             Paragraph(str(row["使用装置"]), cell_style),
             Paragraph(str(row["バッテリ"]), cell_style),
             Paragraph(str(row["担当医"]), cell_style),
-            Paragraph(str(row["連絡先"]), cell_style)
+            Paragraph(str(row["連絡先"]), cell_style),
+            Paragraph(str(row["住所"]), cell_style),
+            Paragraph(str(row.get("備考", "")), cell_style)
         ])
 
-    t = Table(table_data, colWidths=[30, 55, 60, 160, 70, 40, 55, 80])
+    # 総幅約 560 pt
+    t = Table(table_data, colWidths=[25, 55, 50, 65, 35, 50, 70, 150, 60])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
     ]))
@@ -362,7 +390,7 @@ def highlight_outage(val):
         return "background-color: #ffcccc; font-weight: bold; color: #990000;"
     return ""
 
-display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "住所", "使用装置", "バッテリ", "担当医", "連絡先"]
+display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
 
 if layout_option == "左右に並べて表示 (PC・大画面向け)":
     col1, col2 = st.columns([6, 5])
