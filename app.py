@@ -8,6 +8,7 @@ import folium
 from streamlit_folium import st_folium
 import io
 import os
+import glob
 from datetime import datetime, timezone, timedelta
 
 # 日本時間（JST）の定義
@@ -110,11 +111,20 @@ def generate_50_kagawa_patients():
         })
     return patients
 
-def load_template_file(file_path="患者リスト_登録フォーマット.xlsx"):
-    """ローカルに置いた添付フォーマットファイルをバイナリとして読み込む"""
-    if os.path.exists(file_path):
-        with open(file_path, "rb") as f:
-            return f.read()
+def load_template_file():
+    """プロジェクト直下のExcelファイルを自動検出して読み込む"""
+    # フォルダ内の.xlsxファイルを検索
+    xlsx_files = glob.glob("*.xlsx")
+    target_file = None
+    
+    for f in xlsx_files:
+        if not f.startswith("~$"):  # Excelの一時ファイルを除外
+            target_file = f
+            break
+            
+    if target_file and os.path.exists(target_file):
+        with open(target_file, "rb") as f:
+            return f.read(), os.path.basename(target_file)
     else:
         # 万一ファイルが存在しない場合の自動生成バックアップ
         sample_data = [{
@@ -126,7 +136,7 @@ def load_template_file(file_path="患者リスト_登録フォーマット.xlsx"
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             pd.DataFrame(sample_data).to_excel(writer, index=False, sheet_name='患者リスト')
         output.seek(0)
-        return output.getvalue()
+        return output.getvalue(), "患者リスト_登録フォーマット.xlsx"
 
 # ---------------------------------------------------------
 # 3. サイドバー設定 & データ読み込み
@@ -138,11 +148,11 @@ st.sidebar.markdown("---")
 st.sidebar.header("📂 データ読み込み設定")
 
 # 添付フォーマットそのものをDLするボタン
-template_bytes = load_template_file("患者リスト_登録フォーマット.xlsx")
+template_bytes, template_filename = load_template_file()
 st.sidebar.download_button(
     label="📥 患者リスト登録フォーマット(Excel)をDL",
     data=template_bytes,
-    file_name="患者リスト_登録フォーマット.xlsx",
+    file_name=template_filename,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     use_container_width=True
 )
@@ -191,403 +201,6 @@ else:
             lons.append(lon)
         df_patients["lat"] = lats
         df_patients["lon"] = lons
-    st.sidebar.info("現在はデモ用データ（50名分）を表示中")
-
-st.sidebar.markdown("---")
-layout_option = st.sidebar.radio(
-    "画面の表示スタイル", 
-    ["左右に並べて表示 (PC・大画面向け)", "タブで切り替えて表示 (スマホ・省スペース向け)"]
-)
-
-# セッション状態の初期化
-if "sim_areas" not in st.session_state:
-    st.session_state.sim_areas = ["高松市番町", "宇多津町"]
-if "sim_created_time" not in st.session_state:
-    st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-
-# ---------------------------------------------------------
-# 4. 停電データの照合準備 & 優先度ソート
-# ---------------------------------------------------------
-outage_data = []
-created_time_str = ""
-
-if mode == "🧪 仮想シミュレーションモード":
-    st.subheader("1. 🧪 停電エリア・シミュレーター")
-    
-    col_input, col_btn = st.columns([3, 1])
-    with col_input:
-        sim_input = st.text_input(
-            "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
-            value="高松市番町, 宇多津町"
-        )
-    with col_btn:
-        st.write(" ")
-        st.write(" ")
-        if st.button("▶️ シミュレーション実行", use_container_width=True):
-            st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
-            st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.success("シミュレーションを実行・作成日時を更新しました！")
-
-    for area in st.session_state.sim_areas:
-        outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
-    
-    created_time_str = st.session_state.sim_created_time
-    st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
-
-else:
-    st.subheader("1. 🌐 Webリアルタイム停電情報")
-    outage_data = fetch_outage_info()
-    created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-    
-    if outage_data:
-        outage_df_display = [{"都道府県": item["prefecture"], "市区町村": item["city"], "対象町名": item["raw_towns"]} for item in outage_data]
-        st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
-    else:
-        st.warning("現在、四国電力Webサイト上に該当する停電情報はありません。")
-
-def check_outage(address, outage_list):
-    for item in outage_list:
-        city_clean = re.sub(r".*郡", "", item["city"])
-        if city_clean in str(address):
-            return True, item["city"]
-        for town in item["towns"]:
-            if town and town in str(address):
-                return True, town
-    return False, "正常"
-
-results = []
-alerts = []
-
-for idx, row in df_patients.iterrows():
-    is_outage, area_info = check_outage(str(row["住所"]), outage_data)
-    results.append({
-        "ID": row.get("ID", f"P{idx+1:03d}"),
-        "停電リスク": "⚠️ 停電可能性あり" if is_outage else "🟢 正常",
-        "検知エリア": area_info if is_outage else "-",
-        "患者名": row["患者名"],
-        "使用装置": row.get("使用装置", "なし"),
-        "バッテリ": row.get("バッテリ", "ー"),
-        "担当医": row.get("担当医", "-"),
-        "連絡先": row.get("連絡先", "-"),
-        "住所": row["住所"],
-        "備考": row.get("備考", ""),
-        "lat": float(row.get("lat", 34.3400)),
-        "lon": float(row.get("lon", 134.0450))
-    })
-    if is_outage:
-        alerts.append(row)
-
-df_result = pd.DataFrame(results)
-
-def get_device_order(val):
-    return 1 if str(val) == "なし" else 0
-
-def get_battery_order(val):
-    v = str(val)
-    if v == "ー": return 0
-    elif v == "？": return 1
-    elif v == "○": return 2
-    return 3
-
-df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
-df_result["device_sort"] = df_result["使用装置"].apply(get_device_order)
-df_result["battery_sort"] = df_result["バッテリ"].apply(get_battery_order)
-
-df_result = df_result.sort_values(
-    by=["risk_sort", "device_sort", "battery_sort"]
-).drop(columns=["risk_sort", "device_sort", "battery_sort"])
-
-# ---------------------------------------------------------
-# 5. 地図描画関数
-# ---------------------------------------------------------
-def build_map(df, target_only=False):
-    if target_only:
-        display_df = df[df["停電リスク"].str.contains("⚠️")]
-    else:
-        display_df = df
-
-    if not display_df.empty:
-        center_lat = display_df["lat"].mean()
-        center_lon = display_df["lon"].mean()
-        zoom_level = 14 if target_only else 11
-    else:
-        center_lat, center_lon = 34.3000, 133.9500
-        zoom_level = 11
-        
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
-    
-    for _, row in display_df.iterrows():
-        is_alert = "⚠️" in row["停電リスク"]
-        color = "red" if is_alert else "green"
-        icon_type = "exclamation-triangle" if is_alert else "user"
-        
-        popup_html = f"""
-        <div style='font-size:12px; width:200px;'>
-            <b>【{row['停電リスク']}】</b><br>
-            <b>氏名:</b> {row['患者名']}<br>
-            <b>装置:</b> {row['使用装置']} (バッテリ: {row['バッテリ']})<br>
-            <b>担当:</b> {row['担当医']}<br>
-            <b>TEL:</b> {row['連絡先']}<br>
-            <b>住所:</b> {row['住所']}
-        </div>
-        """
-        folium.Marker(
-            location=[row["lat"], row["lon"]],
-            popup=folium.Popup(popup_html, max_width=220),
-            tooltip=f"{'⚠️[停電]' if is_alert else '🟢'} {row['患者名']} 様（{row['使用装置']} / バッテリ:{row['バッテリ']}）",
-            icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
-        ).add_to(m)
-    return m
-
-# ---------------------------------------------------------
-# 6. レポート生成処理 (PDF / HTML)
-# ---------------------------------------------------------
-def register_japanese_font():
-    font_name = "IPAGothic"
-    if font_name not in pdfmetrics.getRegisteredFontNames():
-        ttf_url = "https://raw.githubusercontent.com/google/fonts/main/ofl/sawarabigothic/SawarabiGothic-Regular.ttf"
-        font_path = "SawarabiGothic-Regular.ttf"
-        if not os.path.exists(font_path):
-            res = requests.get(ttf_url, timeout=10)
-            with open(font_path, "wb") as f:
-                f.write(res.content)
-        pdfmetrics.registerFont(TTFont(font_name, font_path))
-    return font_name
-
-def create_pdf_report(df_alert_patients, created_time):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=15, leftMargin=15, topMargin=20, bottomMargin=20)
-    story = []
-    font_name = register_japanese_font()
-
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('TitleStyle', parent=styles['Heading1'], fontName=font_name, fontSize=14, leading=17, spaceAfter=8)
-    normal_style = ParagraphStyle('NormalStyle', parent=styles['Normal'], fontName=font_name, fontSize=8, leading=11)
-    cell_style = ParagraphStyle('CellStyle', parent=styles['Normal'], fontName=font_name, fontSize=7, leading=9.5)
-
-    story.append(Paragraph("【緊急対応確認】停電可能性患者リスト", title_style))
-    story.append(Paragraph(f"<b>作成日時: {created_time} 作成</b> | 対象件数: {len(df_alert_patients)} 名", normal_style))
-    story.append(Spacer(1, 10))
-
-    headers = ["ID", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
-    table_data = [[Paragraph(f"<b>{h}</b>", ParagraphStyle('HeaderStyle', parent=cell_style, textColor=colors.whitesmoke)) for h in headers]]
-    
-    for _, row in df_alert_patients.iterrows():
-        table_data.append([
-            Paragraph(str(row["ID"]), cell_style),
-            Paragraph(str(row["検知エリア"]), cell_style),
-            Paragraph(str(row["患者名"]), cell_style),
-            Paragraph(str(row["使用装置"]), cell_style),
-            Paragraph(str(row["バッテリ"]), cell_style),
-            Paragraph(str(row["担当医"]), cell_style),
-            Paragraph(str(row["連絡先"]), cell_style),
-            Paragraph(str(row["住所"]), cell_style),
-            Paragraph(str(row.get("備考", "")), cell_style)
-        ])
-
-    t = Table(table_data, colWidths=[25, 55, 50, 65, 35, 50, 70, 150, 60])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
-        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
-    ]))
-    story.append(t)
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
-def get_html_map_download(m):
-    return m._repr_html_()
-
-# ---------------------------------------------------------
-# 7. 画面表示エリア
-# ---------------------------------------------------------
-st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
-st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
-
-df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
-
-if len(alerts) > 0:
-    st.error(f"🚨 停電エリア内に該当する患者が **{len(alerts)} 名** ピックアップされました！")
-    
-    col_dl1, col_dl2 = st.columns(2)
-    with col_dl1:
-        pdf_data = create_pdf_report(df_alert_only, created_time_str)
-        st.download_button(
-            label="📄 1. 停電対象者リスト（PDF）をDL",
-            data=pdf_data,
-            file_name="停電リスク対象患者リスト.pdf",
-            mime="application/pdf",
-            use_container_width=True
-        )
-    with col_dl2:
-        m_target_dl = build_map(df_result, target_only=True)
-        html_data = get_html_map_download(m_target_dl)
-        st.download_button(
-            label="🗺️ 2. 停電対象のみ拡大訪問マップ（HTML）をDL",
-            data=html_data,
-            file_name="停電対象者_拡大訪問マップ.html",
-            mime="text/html",
-            use_container_width=True
-        )
-else:
-    st.success("現在、停電エリアに該当する患者はいません。")
-
-def highlight_outage(val):
-    if "⚠️" in str(val):
-        return "background-color: #ffcccc; font-weight: bold; color: #990000;"
-    return ""
-
-display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
-
-if layout_option == "左右に並べて表示 (PC・大画面向け)":
-    col1, col2 = st.columns([6, 5])
-    with col1:
-        st.markdown("#### 📋 患者リスト (全体)")
-        st.dataframe(df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]), use_container_width=True, height=500)
-    with col2:
-        st.markdown("#### 🗺️ 訪問エリアマップ (赤:停電 / 緑:正常)")
-        m = build_map(df_result)
-        st_folium(m, width="100%", height=500)
-else:
-    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(全体)", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみ拡大マップ"])
-    with tab1:
-        st.dataframe(df_result[display_cols].style.map(highlight_outage, subset=["停電リスク"]), use_container_width=True, height=500)
-    with tab2:
-        m = build_map(df_result, target_only=False)
-        st_folium(m, width="100%", height=500)
-    with tab3:
-        st.markdown("※緑ピン（正常）を非表示にし、停電対象エリアを自動拡大して表示しています。")
-        m_target = build_map(df_result, target_only=True)
-        st_folium(m_target, width="100%", height=500)
-
-# ---------------------------------------------------------
-# 8. アナウンス通知機能（デモ）
-# ---------------------------------------------------------
-st.subheader("3. 初動用アナウンスメール送信（デモ）")
-target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
-
-if st.button("📧 対象患者のアラート通知を一括送信"):
-    if len(alerts) > 0:
-        st.write("**【医師へ送信される自動アナウンスプレビュー】**")
-        for idx, row in df_alert_only.iterrows():
-            st.code(f"""
-件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様）
-宛先: {target_email} ({row['担当医']}御中)
-
-{row['担当医']} 先生
-
-{row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
-作成日時: {created_time_str}
-使用装置: {row['使用装置']} (バッテリ: {row['バッテリ']})
-
-有事の初動対応および安否・医療機器の動作確認をお願いいたします。
-            """, language="text")
-        st.success(f"✅ {len(alerts)} 件の通知メッセージを作成・送信処理（デモ）しました。")
-    else:
-        st.info("停電対象患者がいないため通知は送信されません。")        ("香川県高松市栗林町1丁目", 34.3295, 134.0470),
-        ("香川県丸亀市大手町1丁目", 34.2890, 133.7970),
-        ("香川県綾歌郡宇多津町濱五番丁", 34.3080, 133.8150),
-    ]
-    
-    device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
-    device_weights = [0.5, 0.2, 0.15, 0.15]
-    
-    patients = []
-    random.seed(42)
-    
-    for i in range(1, 51):
-        name = f"{random.choice(last_names)} {random.choice(first_names)}"
-        spot_addr, base_lat, base_lon = random.choice(kagawa_spots)
-        p_id = f"P{i:03d}"
-        addr = f"{spot_addr}{random.randint(1, 99)}番地"
-        doc = random.choice(doctors)
-        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}XX"
-        lat = base_lat + random.uniform(-0.008, 0.008)
-        lon = base_lon + random.uniform(-0.008, 0.008)
-        
-        device = random.choices(device_options, weights=device_weights)[0]
-        battery = "ー" if device == "なし" else random.choice(["○", "ー", "？"])
-        
-        patients.append({
-            "ID": p_id, "患者名": name, "住所": addr, 
-            "担当医": doc, "連絡先": tel, "使用装置": device, "バッテリ": battery,
-            "備考": "", "lat": lat, "lon": lon
-        })
-    return patients
-
-# 雛形（フォーマット）Excelの生成関数
-def generate_template_excel():
-    sample_data = [
-        {
-            "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市番町1丁目1番地",
-            "担当医": "佐藤医師", "連絡先": "090-1234-5678", "使用装置": "人工呼吸器",
-            "バッテリ": "○", "備考": "要緊急確認", "lat": 34.3427, "lon": 134.0465
-        },
-        {
-            "ID": "P002", "患者名": "鈴木 花子", "住所": "香川県綾歌郡宇多津町100番地",
-            "担当医": "高橋医師", "連絡先": "090-9876-5432", "使用装置": "なし",
-            "バッテリ": "ー", "備考": "", "lat": 34.3080, "lon": 133.8150
-        }
-    ]
-    df_template = pd.DataFrame(sample_data)
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df_template.to_excel(writer, index=False, sheet_name='患者リスト')
-    output.seek(0)
-    return output
-
-# ---------------------------------------------------------
-# 3. サイドバー設定 & 調整処理
-# ---------------------------------------------------------
-st.sidebar.header("⚙️ 動作設定")
-mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
-
-st.sidebar.markdown("---")
-st.sidebar.header("📂 データ読み込み設定")
-
-# 雛形DLボタン
-template_excel = generate_template_excel()
-st.sidebar.download_button(
-    label="📥 記入用フォーマット(Excel)をDL",
-    data=template_excel,
-    file_name="患者リスト_登録フォーマット.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    use_container_width=True
-)
-
-uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)をアップロード", type=["xlsx", "csv"])
-
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            df_patients = pd.read_csv(uploaded_file)
-        else:
-            df_patients = pd.read_excel(uploaded_file)
-        
-        # 必須列の存在チェックと自動補完（エラー防止）
-        required_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考", "lat", "lon"]
-        for col in required_cols:
-            if col not in df_patients.columns:
-                if col in ["lat", "lon"]:
-                    # 緯度経度がない場合は高松市付近の座標を仮設定
-                    df_patients[col] = 34.3400 if col == "lat" else 134.0450
-                else:
-                    df_patients[col] = "-"
-        
-        # 欠損値（NaN）の補完
-        df_patients["lat"] = pd.to_numeric(df_patients["lat"], errors='coerce').fillna(34.3400)
-        df_patients["lon"] = pd.to_numeric(df_patients["lon"], errors='coerce').fillna(134.0450)
-        df_patients = df_patients.fillna("-")
-        
-        st.sidebar.success("外部ファイルを読み込みました！")
-    except Exception as e:
-        st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
-        df_patients = pd.DataFrame(generate_50_kagawa_patients())
-else:
-    df_patients = pd.DataFrame(generate_50_kagawa_patients())
     st.sidebar.info("現在はデモ用データ（50名分）を表示中")
 
 st.sidebar.markdown("---")
