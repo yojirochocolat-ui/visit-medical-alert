@@ -113,7 +113,6 @@ def generate_50_kagawa_patients():
 
 def load_template_file():
     """プロジェクト直下のExcelファイルを自動検出して読み込む"""
-    # フォルダ内の.xlsxファイルを検索
     xlsx_files = glob.glob("*.xlsx")
     target_file = None
     
@@ -126,7 +125,6 @@ def load_template_file():
         with open(target_file, "rb") as f:
             return f.read(), os.path.basename(target_file)
     else:
-        # 万一ファイルが存在しない場合の自動生成バックアップ
         sample_data = [{
             "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市番町1丁目1番地",
             "担当医": "佐藤医師", "連絡先": "090-1234-5678", "使用装置": "人工呼吸器",
@@ -166,7 +164,6 @@ if uploaded_file is not None:
         else:
             df_patients = pd.read_excel(uploaded_file)
         
-        # 添付フォーマットの標準列定義
         target_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考"]
         for col in target_cols:
             if col not in df_patients.columns:
@@ -174,7 +171,6 @@ if uploaded_file is not None:
         
         df_patients = df_patients.fillna("-")
         
-        # 住所から緯度・経度を補完（ジオコーディング）
         with st.spinner("住所から地図座標（緯度経度）を自動計算中..."):
             lats, lons = [], []
             for _, r in df_patients.iterrows():
@@ -192,7 +188,6 @@ if uploaded_file is not None:
         df_patients["lon"] = 134.0450
 else:
     df_patients = pd.DataFrame(generate_50_kagawa_patients())
-    # デモデータの座標補完
     with st.spinner("デモデータの地図座標を設定中..."):
         lats, lons = [], []
         for _, r in df_patients.iterrows():
@@ -202,12 +197,6 @@ else:
         df_patients["lat"] = lats
         df_patients["lon"] = lons
     st.sidebar.info("現在はデモ用データ（50名分）を表示中")
-
-st.sidebar.markdown("---")
-layout_option = st.sidebar.radio(
-    "画面の表示スタイル", 
-    ["左右に並べて表示 (PC・大画面向け)", "タブで切り替えて表示 (スマホ・省スペース向け)"]
-)
 
 # セッション状態の初期化
 if "sim_areas" not in st.session_state:
@@ -414,7 +403,21 @@ def get_html_map_download(m):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
+
+# 見出しと表示スタイル切替を同じ行に横並び配置
+header_col, style_col = st.columns([3, 2])
+
+with header_col:
+    st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(df_patients)} 名)")
+
+with style_col:
+    layout_option = st.radio(
+        "表示スタイル", 
+        ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
 st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
 
 df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
@@ -452,7 +455,7 @@ def highlight_outage(val):
 
 display_cols = ["ID", "停電リスク", "検知エリア", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所", "備考"]
 
-if layout_option == "左右に並べて表示 (PC・大画面向け)":
+if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
         st.markdown("#### 📋 患者リスト (全体)")
