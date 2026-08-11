@@ -48,6 +48,10 @@ if "filter_unhandled" not in st.session_state:
 # ---------------------------------------------------------
 @st.cache_data(ttl=86400)
 def geocode_address(address):
+    # 高松シンボルタワー/現住所（拠点）の場合は直接正確な座標を返す
+    if "シンボルタワー" in str(address) or "高松駅" in str(address):
+        return 34.3533, 134.0470
+    
     if not address or pd.isna(address) or str(address).strip() == "-":
         return 34.3400, 134.0450
     try:
@@ -270,7 +274,7 @@ if mode == "仮想シミュレーションモード":
         if st.button("🔄 リセット", use_container_width=True):
             st.session_state.sim_areas = []
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.session_state.filter_unhandled = False  # チェックボックスのチェックも解除
+            st.session_state.filter_unhandled = False
             st.rerun()
 
     for area in st.session_state.sim_areas:
@@ -379,21 +383,15 @@ def build_map(df, target_only=False, home_address=""):
     else:
         display_df = df
 
-    if not display_df.empty:
-        center_lat = display_df["lat"].mean()
-        center_lon = display_df["lon"].mean()
-    else:
-        center_lat, center_lon = 34.3400, 134.0450
-        
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
+    # デフォルトの初期座標（高松シンボルタワー）
+    home_lat, home_lon = geocode_address(home_address)
     
+    m = folium.Map(location=[home_lat, home_lon], zoom_start=15)
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
 
-    # ピンの緯度経度を記録して境界計算に利用
     bounds_points = []
 
     if home_address and home_address.strip() != "":
-        h_lat, h_lon = geocode_address(home_address)
         home_popup = f"""
         <div style='font-size:12px; width:180px;'>
             <b style='color:blue;'>📍 現住所（拠点）</b><br>
@@ -401,12 +399,12 @@ def build_map(df, target_only=False, home_address=""):
         </div>
         """
         folium.Marker(
-            location=[h_lat, h_lon],
+            location=[home_lat, home_lon],
             popup=folium.Popup(home_popup, max_width=200),
             tooltip=f"📍 現住所 ({home_address})",
             icon=folium.Icon(color="blue", icon="home", prefix="fa")
         ).add_to(m)
-        bounds_points.append([h_lat, h_lon])
+        bounds_points.append([home_lat, home_lon])
 
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
@@ -444,20 +442,18 @@ def build_map(df, target_only=False, home_address=""):
         
         bounds_points.append([row["lat"], row["lon"]])
 
-    # ピンが存在する場合、全ピンが収まる範囲を適正に境界設定 (fit_bounds)
-    if bounds_points:
+    # 全ピンが均等に収まる範囲へフィット（最大ズームを制限してズームイン表示を維持）
+    if len(bounds_points) > 1:
         min_lat = min(p[0] for p in bounds_points)
         max_lat = max(p[0] for p in bounds_points)
         min_lon = min(p[1] for p in bounds_points)
         max_lon = max(p[1] for p in bounds_points)
         
-        # 1点のみの場合や同一地点の場合はズームを一定値に保持
-        if min_lat == max_lat and min_lon == max_lon:
-            m.location = [min_lat, min_lon]
-            m.zoom_start = 14
-        else:
-            m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]], padding=(30, 30))
-        
+        m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]], padding=(30, 30), max_zoom=16)
+    elif len(bounds_points) == 1:
+        m.location = bounds_points[0]
+        m.zoom_start = 16
+
     return m
 
 # ---------------------------------------------------------
@@ -525,7 +521,8 @@ def create_pdf_report(df_alert_patients, created_time):
 header_col, style_col = st.columns([1, 1])
 
 with header_col:
-    st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(df_alert_all)} / 全 {len(st.session_state.patients_data)} 名)")
+    # 修正: (該当患者: X / 全 Y 名) の不要な表示を削除
+    st.subheader("2. 患者照合結果 & マップ可視化")
 
 with style_col:
     layout_option = st.radio(
