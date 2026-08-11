@@ -161,7 +161,7 @@ if st.session_state.patients_data is None:
 # 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
-mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
+mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "リアルタイムWeb取得モード"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
@@ -241,7 +241,7 @@ if mode == "仮想シミュレーションモード":
     st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
 
 else:
-    st.subheader("1. 🌐 Webリアルタイム停電情報")
+    st.subheader("1. Webリアルタイム停電情報")
     outage_data = fetch_outage_info()
     created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     
@@ -251,13 +251,15 @@ else:
     else:
         st.warning("現在、Webサイト上に該当する停電情報はありません。")
 
+# --- 照合ロジック ---
 def check_outage(address, outage_list):
+    addr_str = str(address)
     for item in outage_list:
-        city_clean = re.sub(r".*郡", "", item["city"])
-        if city_clean in str(address):
-            return True, item["city"]
+        city = item["city"]
+        if city and city in addr_str:
+            return True, city
         for town in item["towns"]:
-            if town and town in str(address):
+            if town and town in addr_str:
                 return True, town
     return False, "正常"
 
@@ -485,19 +487,20 @@ else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
 # --- 絞り込みチェックボックス ---
-filter_col1, _ = st.columns([2, 3])
+filter_col1, _ = st.columns([3, 2])
 with filter_col1:
-    only_unhandled = st.checkbox("🔍 未対応の患者のみに絞り込む", value=False)
+    only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", value=False)
 
-# チェックの有無によって表とマップの両方のデータ源を切り替える
 if only_unhandled:
-    display_target_df = df_result[df_result["対応ステータス"] == "未対応"]
+    display_target_df = df_result[
+        (df_result["停電リスク"].str.contains("⚠️")) & 
+        (df_result["対応ステータス"] == "未対応")
+    ]
 else:
     display_target_df = df_result.copy()
 
 display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 
-# データエディタ設定
 column_config = {
     "対応ステータス": st.column_config.SelectboxColumn(
         "対応ステータス",
@@ -519,7 +522,6 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 
-# タイトル表示用のHTML文字列（「患者リスト」タイトルの右に小文字補足を配置）
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
 if layout_option == "左右並べ（PC・大画面向け）":
@@ -536,7 +538,6 @@ if layout_option == "左右並べ（PC・大画面向け）":
         )
     with col2:
         st.markdown("#### 🗺️ 訪問エリアマップ (赤:未訪問停電 / 灰:安否済 / 緑:正常)")
-        # 絞り込まれた display_target_df を渡すことでマップ側も「未対応」のみに連動
         m = build_map(display_target_df)
         st_folium(m, width="100%", height=450)
 else:
