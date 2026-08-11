@@ -14,7 +14,6 @@ import requests
 import streamlit as st
 from streamlit_folium import st_folium
 
-# 日本時間（JST）の定義
 JST = timezone(timedelta(hours=9))
 
 st.set_page_config(
@@ -24,7 +23,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# カスタムCSS（視認性向上・Dark/Lightモード両対応）
+# カスタムCSS
 # ---------------------------------------------------------
 custom_css = """
 <style>
@@ -87,7 +86,6 @@ custom_css = """
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# ヘッダー領域
 st.markdown(
     '<div class="main-header">⚡ 停電アラート & 訪問ルート最適化</div>',
     unsafe_allow_html=True,
@@ -116,9 +114,6 @@ if "show_route" not in st.session_state:
   st.session_state.show_route = False
 
 
-# ---------------------------------------------------------
-# メール送信機能
-# ---------------------------------------------------------
 def send_email_alert(to_email, reply_to_email, subject, body, smtp_config):
   if (
       not smtp_config.get("server")
@@ -155,9 +150,6 @@ def send_email_alert(to_email, reply_to_email, subject, body, smtp_config):
     return False, f"送信失敗: {str(e)}"
 
 
-# ---------------------------------------------------------
-# 住所ジオコーディング & 距離計算
-# ---------------------------------------------------------
 @st.cache_data(ttl=86400)
 def geocode_address(address):
   if not address or pd.isna(address) or str(address).strip() == "-":
@@ -187,9 +179,6 @@ def calc_distance_km(lat1, lon1, lat2, lon2):
   return R * c
 
 
-# ---------------------------------------------------------
-# 停電情報取得 & デモデータ生成
-# ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def fetch_outage_info():
   url = "https://www.yonden.co.jp/nw/teiden-info/history07.html"
@@ -298,7 +287,7 @@ if st.session_state.patients_data is None:
   st.session_state.patients_data = initial_df
 
 # ---------------------------------------------------------
-# サイドバー設定
+# サイドバー
 # ---------------------------------------------------------
 st.sidebar.markdown("### 🚗 医師・訪問チーム設定")
 doctor_loc_input = st.sidebar.text_input(
@@ -349,7 +338,7 @@ mode = st.sidebar.radio(
 )
 
 # ---------------------------------------------------------
-# 照合処理 & トリアージ判定
+# 照合処理 & トリアージ
 # ---------------------------------------------------------
 outage_data = []
 if mode == "🧪 仮想シミュレーション":
@@ -458,7 +447,7 @@ df_visit_needed = df_result[
 
 
 # ---------------------------------------------------------
-# 全患者（1〜9人目全件）の最適訪問ルート計算ロジック
+# 最適ルート計算ロジック（全対象をソートして順序付け）
 # ---------------------------------------------------------
 def calculate_optimal_route(start_lat, start_lon, target_df):
   unvisited = target_df.copy().to_dict("records")
@@ -466,6 +455,7 @@ def calculate_optimal_route(start_lat, start_lon, target_df):
   curr_lat, curr_lon = start_lat, start_lon
 
   while unvisited:
+    # 優先度（トリアージ高）かつ 距離が近い順にソート
     unvisited.sort(key=lambda x: (
         -x["triage_score"],
         calc_distance_km(curr_lat, curr_lon, x["lat"], x["lon"]),
@@ -521,7 +511,7 @@ with m4:
   )
 
 # ---------------------------------------------------------
-# 2. 📋 登録患者・停電照合リスト（全件表示）
+# 2. リスト表示
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">2. 📋 登録患者・停電照合リスト（全件）</div>',
@@ -548,7 +538,7 @@ st.dataframe(
 )
 
 # ---------------------------------------------------------
-# 3. 🗺️ 巡回ルート提案 & マップ（見やすい標準マップ・全件表示）
+# 3. 🗺️ 巡回ルート提案 & マップ描画（全件を接続）
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">3. 🗺️ 巡回ルート提案 & マップ</div>',
@@ -562,12 +552,11 @@ if st.session_state.show_route:
   if not df_route.empty:
     col_map, col_info = st.columns([3, 2])
     with col_map:
-      # よりクッキリと見やすい標準マップ (OpenStreetMap) を採用
       m = folium.Map(
-          location=[doc_lat, doc_lon], zoom_start=11, tiles="OpenStreetMap"
+          location=[doc_lat, doc_lon], zoom_start=12, tiles="OpenStreetMap"
       )
 
-      # 出発拠点マーカー
+      # 出発拠点
       folium.Marker(
           location=[doc_lat, doc_lon],
           popup=(
@@ -577,14 +566,16 @@ if st.session_state.show_route:
           icon=folium.Icon(color="black", icon="home", prefix="fa"),
       ).add_to(m)
 
+      # 全ルートを繋ぐ座標リストを定義（最初は拠点）
       route_points = [[doc_lat, doc_lon]]
 
-      # 1〜N人目まですべてのマーカーを地図に追加
+      # 1〜N番目の患者マーカーを追加し、座標をリストへ追加
       for _, row in df_route.iterrows():
         order = int(row["visit_order"])
-        route_points.append([row["lat"], row["lon"]])
+        pt = [row["lat"], row["lon"]]
+        route_points.append(pt)
 
-        # 全ての数字が見やすいDivIcon（赤丸・白文字数字）
+        # マーカー用カスタムHTMLアイコン
         icon_html = f"""
                 <div style="
                     background-color: #DC2626;
@@ -603,7 +594,7 @@ if st.session_state.show_route:
                 """
 
         folium.Marker(
-            location=[row["lat"], row["lon"]],
+            location=pt,
             popup=(
                 f"<b>#{order} {row['患者名']} 様</b><br>{row['トリアージ']}<br>{row['住所']}"
             ),
@@ -613,7 +604,7 @@ if st.session_state.show_route:
             ),
         ).add_to(m)
 
-      # 全区間を結ぶ青いルートライン（視認性を向上）
+      # 【重要】全ての通過点（拠点 ➔ 1 ➔ 2 ➔ ... ➔ 9）を一連の青線で接続
       folium.PolyLine(
           route_points,
           color="#2563EB",
@@ -649,7 +640,6 @@ if st.session_state.show_route:
           unsafe_allow_html=True,
       )
 
-      # 1〜N人までのリストをスクロール可能エリアに確実に表示
       st.markdown("**【訪問順序リスト】**")
       for _, r in df_route.iterrows():
         st.markdown(
@@ -665,7 +655,7 @@ if st.session_state.show_route:
     st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
 
 # ---------------------------------------------------------
-# 4. 📧 緊急一括メール配信パネル
+# 4. メール配信機能
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">4. 📧 緊急メールアラート送信（返信機能付き）</div>',
@@ -750,7 +740,7 @@ if send_trigger:
     st.info("現在、送信対象となる未対応の停電患者はいません。")
 
 # ---------------------------------------------------------
-# 5. 📝 現場ステータス更新
+# 5. ステータス更新
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">5. 📝 現場ステータス更新</div>',
