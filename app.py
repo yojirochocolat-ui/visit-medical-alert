@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import re
 import random
 import folium
+from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import io
 import os
@@ -32,7 +33,7 @@ st.caption("リアルタイムの停電情報と患者リストを照合し、�
 # セッション状態の初期化
 # ---------------------------------------------------------
 if "sim_areas" not in st.session_state:
-    st.session_state.sim_areas = ["高松市番町", "宇多津町"]
+    st.session_state.sim_areas = ["高松市番町", "瓦町"]
 if "sim_created_time" not in st.session_state:
     st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 if "patient_status" not in st.session_state:
@@ -145,14 +146,18 @@ def load_template_file():
         output.seek(0)
         return output.getvalue(), "患者リスト_登録フォーマット.xlsx"
 
-# 初期データのロード
+# 初期データのロード＆座標ずらし(ジッター)処理
 if st.session_state.patients_data is None:
     initial_df = pd.DataFrame(generate_50_kagawa_patients())
     lats, lons = [], []
+    random.seed(123)
     for _, r in initial_df.iterrows():
-        lat, lon = geocode_address(r["住所"])
-        lats.append(lat)
-        lons.append(lon)
+        base_lat, base_lon = geocode_address(r["住所"])
+        # 同一住所でピンが完全に重なるのを防ぐための微小オフセット (約20m〜100m程度の拡散)
+        jitter_lat = base_lat + random.uniform(-0.0015, 0.0015)
+        jitter_lon = base_lon + random.uniform(-0.0015, 0.0015)
+        lats.append(jitter_lat)
+        lons.append(jitter_lon)
     initial_df["lat"] = lats
     initial_df["lon"] = lons
     st.session_state.patients_data = initial_df
@@ -162,10 +167,10 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# 【追加機能】現住所（出発地・拠点）の入力欄
+# 【変更】現住所のデフォルト値を「高松シンボルタワー」に設定
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
-    value="香川県高松市番町1丁目1-1",
+    value="高松シンボルタワー",
     help="マップ上に現在地/拠点ピンとして表示されます"
 )
 
@@ -200,10 +205,13 @@ if uploaded_file is not None:
         
         with st.spinner("位置情報を計算してデータを統合中..."):
             lats, lons = [], []
+            random.seed(999)
             for _, r in new_df.iterrows():
-                lat, lon = geocode_address(r["住所"])
-                lats.append(lat)
-                lons.append(lon)
+                base_lat, base_lon = geocode_address(r["住所"])
+                jitter_lat = base_lat + random.uniform(-0.0015, 0.0015)
+                jitter_lon = base_lon + random.uniform(-0.0015, 0.0015)
+                lats.append(jitter_lat)
+                lons.append(jitter_lon)
             new_df["lat"] = lats
             new_df["lon"] = lons
 
@@ -233,7 +241,7 @@ if mode == "仮想シミュレーションモード":
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
             value="",
-            placeholder="例: 高松市番町, 宇多津町"
+            placeholder="例: 高松市番町, 瓦町"
         )
     with col_btn:
         st.write(" ")
@@ -336,7 +344,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数
+# 5. 地図描画関数（MarkerCluster対応で全ピン描画）
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -347,28 +355,31 @@ def build_map(df, target_only=False, home_address=""):
     if not display_df.empty:
         center_lat = display_df["lat"].mean()
         center_lon = display_df["lon"].mean()
-        zoom_level = 14 if target_only else 11
+        zoom_level = 13 if target_only else 12
     else:
-        center_lat, center_lon = 34.3000, 133.9500
-        zoom_level = 11
+        center_lat, center_lon = 34.3400, 134.0450
+        zoom_level = 12
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
-    # 【追加機能】現住所ピンのプロット
+    # クラスタリンググループを追加 (近接ピンをまとめて見やすくし、すべての赤ピン表示に対応)
+    marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
+
+    # 現住所ピンのプロット
     if home_address and home_address.strip() != "":
         h_lat, h_lon = geocode_address(home_address)
         home_popup = f"""
         <div style='font-size:12px; width:180px;'>
             <b style='color:blue;'>📍 現住所（拠点）</b><br>
-            <b>住所:</b> {home_address}
+            <b>場所:</b> {home_address}
         </div>
         """
         folium.Marker(
             location=[h_lat, h_lon],
             popup=folium.Popup(home_popup, max_width=200),
-            tooltip="📍 現住所（拠点）",
+            tooltip=f"📍 現住所 ({home_address})",
             icon=folium.Icon(color="blue", icon="home", prefix="fa")
-        ).add_to(m)
+        ).add_to(m) # 現住所はクラスタリングせず独立表示
 
     # 患者ピンのプロット
     for _, row in display_df.iterrows():
@@ -403,7 +414,8 @@ def build_map(df, target_only=False, home_address=""):
             popup=folium.Popup(popup_html, max_width=240),
             tooltip=f"{row['トリアージ']} | {row['患者名']} 様 ({row['対応ステータス']})",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
-        ).add_to(m)
+        ).add_to(marker_cluster) # クラスタリングに追加
+        
     return m
 
 # ---------------------------------------------------------
@@ -549,8 +561,6 @@ column_config = {
 }
 
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-
-# 【変更】凡例に 🔵 現住所 を小さめ文字で追加
 map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 現住所 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 
 if layout_option == "左右並べ（PC・大画面向け）":
