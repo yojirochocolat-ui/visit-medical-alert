@@ -32,8 +32,9 @@ st.caption("リアルタイムの停電情報と患者リストを照合し、�
 # ---------------------------------------------------------
 # セッション状態の初期化
 # ---------------------------------------------------------
+# 【変更】初期状態はエリア空欄（全員正常リスク）
 if "sim_areas" not in st.session_state:
-    st.session_state.sim_areas = ["高松市番町", "瓦町"]
+    st.session_state.sim_areas = []
 if "sim_created_time" not in st.session_state:
     st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 if "patient_status" not in st.session_state:
@@ -90,12 +91,25 @@ def fetch_outage_info():
 # ---------------------------------------------------------
 @st.cache_data
 def generate_50_kagawa_patients():
-    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤"]
-    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子"]
+    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤", "吉田", "山田", "松本", "井上", "木村"]
+    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "大輔", "美咲", "直樹", "裕子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
+    # 【変更】高松市内の多様な地域・町名に分散
     kagawa_spots = [
-        "香川県高松市番町1丁目", "香川県高松市瓦町2丁目", "香川県高松市栗林町1丁目",
+        "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
+        "香川県高松市昭和町1丁目", "香川県高松市昭和町2丁目",
+        "香川県高松市茜町", 
+        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市栗林町3丁目",
+        "香川県高松市扇町1丁目", "香川県高松市扇町2丁目",
+        "香川県高松市紫雲町",
+        "香川県高松市中新町",
+        "香川県高松市藤塚町1丁目", "香川県高松市藤塚町2丁目",
+        "香川県高松市天神前",
+        "香川県高松市錦町1丁目", "香川県高松市錦町2丁目",
+        "香川県高松市番町1丁目", "香川県高松市番町2丁目", "香川県高松市番町3丁目", "香川県高松市番町4丁目",
+        "香川県高松市瓦町1丁目", "香川県高松市瓦町2丁目",
+        "香川県高松市塩上町1丁目", "香川県高松市観光通1丁目",
         "香川県丸亀市大手町1丁目", "香川県綾歌郡宇多津町濱五番丁"
     ]
     
@@ -109,7 +123,7 @@ def generate_50_kagawa_patients():
         name = f"{random.choice(last_names)} {random.choice(first_names)}"
         spot_addr = random.choice(kagawa_spots)
         p_id = f"P{i:03d}"
-        addr = f"{spot_addr}{random.randint(1, 99)}番地"
+        addr = f"{spot_addr}{random.randint(1, 20)}-{random.randint(1, 15)}"
         doc = random.choice(doctors)
         tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}0"
         
@@ -136,7 +150,7 @@ def load_template_file():
             return f.read(), os.path.basename(target_file)
     else:
         sample_data = [{
-            "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市番町1丁目1番地",
+            "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市宮脇町1丁目1-1",
             "担当医": "佐藤医師", "連絡先": "090-1234-5678", "使用装置": "人工呼吸器",
             "バッテリ": "○", "備考": "要緊急確認"
         }]
@@ -154,8 +168,8 @@ if st.session_state.patients_data is None:
     for _, r in initial_df.iterrows():
         base_lat, base_lon = geocode_address(r["住所"])
         # 同一住所でピンが完全に重なるのを防ぐための微小オフセット (約20m〜100m程度の拡散)
-        jitter_lat = base_lat + random.uniform(-0.0015, 0.0015)
-        jitter_lon = base_lon + random.uniform(-0.0015, 0.0015)
+        jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
+        jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
         lats.append(jitter_lat)
         lons.append(jitter_lon)
     initial_df["lat"] = lats
@@ -167,7 +181,6 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# 【変更】現住所のデフォルト値を「高松シンボルタワー」に設定
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松シンボルタワー",
@@ -208,8 +221,8 @@ if uploaded_file is not None:
             random.seed(999)
             for _, r in new_df.iterrows():
                 base_lat, base_lon = geocode_address(r["住所"])
-                jitter_lat = base_lat + random.uniform(-0.0015, 0.0015)
-                jitter_lon = base_lon + random.uniform(-0.0015, 0.0015)
+                jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
+                jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
                 lats.append(jitter_lat)
                 lons.append(jitter_lon)
             new_df["lat"] = lats
@@ -238,10 +251,11 @@ if mode == "仮想シミュレーションモード":
     
     col_input, col_btn, _ = st.columns([4, 2, 6])
     with col_input:
+        # 【変更】初期状態を空欄に設定
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
-            value="",
-            placeholder="例: 高松市番町, 瓦町"
+            value=",".join(st.session_state.sim_areas),
+            placeholder="例: 宮脇町, 昭和町, 茜町"
         )
     with col_btn:
         st.write(" ")
@@ -255,7 +269,10 @@ if mode == "仮想シミュレーションモード":
         outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
     
     created_time_str = st.session_state.sim_created_time
-    st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
+    if st.session_state.sim_areas:
+        st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
+    else:
+        st.caption("現在のテスト対象エリア: **指定なし（全員正常）**")
 
 else:
     st.subheader("1. Webリアルタイム停電情報")
@@ -270,6 +287,8 @@ else:
 
 # --- 照合ロジック ---
 def check_outage(address, outage_list):
+    if not outage_list:
+        return False, "正常"
     addr_str = str(address)
     for item in outage_list:
         city = item["city"]
@@ -344,7 +363,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数（MarkerCluster対応で全ピン描画）
+# 5. 地図描画関数（MarkerCluster対応）
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -355,14 +374,14 @@ def build_map(df, target_only=False, home_address=""):
     if not display_df.empty:
         center_lat = display_df["lat"].mean()
         center_lon = display_df["lon"].mean()
-        zoom_level = 13 if target_only else 12
+        zoom_level = 13 if target_only else 13
     else:
         center_lat, center_lon = 34.3400, 134.0450
-        zoom_level = 12
+        zoom_level = 13
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
-    # クラスタリンググループを追加 (近接ピンをまとめて見やすくし、すべての赤ピン表示に対応)
+    # クラスタリンググループを追加
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
 
     # 現住所ピンのプロット
@@ -379,7 +398,7 @@ def build_map(df, target_only=False, home_address=""):
             popup=folium.Popup(home_popup, max_width=200),
             tooltip=f"📍 現住所 ({home_address})",
             icon=folium.Icon(color="blue", icon="home", prefix="fa")
-        ).add_to(m) # 現住所はクラスタリングせず独立表示
+        ).add_to(m)
 
     # 患者ピンのプロット
     for _, row in display_df.iterrows():
@@ -414,7 +433,7 @@ def build_map(df, target_only=False, home_address=""):
             popup=folium.Popup(popup_html, max_width=240),
             tooltip=f"{row['トリアージ']} | {row['患者名']} 様 ({row['対応ステータス']})",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
-        ).add_to(marker_cluster) # クラスタリングに追加
+        ).add_to(marker_cluster)
         
     return m
 
@@ -522,7 +541,7 @@ if len(df_alert_all) > 0:
             use_container_width=True
         )
 else:
-    st.success("現在、停電エリアに該当する患者はいません。")
+    st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
 # --- 絞り込みチェックボックス ---
 filter_col1, _ = st.columns([3, 2])
