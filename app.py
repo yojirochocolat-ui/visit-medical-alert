@@ -1,20 +1,18 @@
+import io
+import os
+import glob
+import re
+import random
+import urllib.parse
+from datetime import datetime, timezone, timedelta
+
 import streamlit as st
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import re
-import random
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-import io
-import os
-import glob
-import urllib.parse
-from datetime import datetime, timezone, timedelta
-
-# 日本時間（JST）の定義
-JST = timezone(timedelta(hours=9))
 
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
@@ -24,6 +22,10 @@ from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+# 日本時間（JST）の定義
+JST = timezone(timedelta(hours=9))
+
+# ページ基本設定
 st.set_page_config(page_title="停電アラート", layout="wide")
 
 st.title("⚡ 停電アラート")
@@ -65,31 +67,61 @@ def geocode_address(address):
     return 34.3400, 134.0450
 
 # ---------------------------------------------------------
-# 1. 四国電力の停電情報を取得する関数
+# 1. 四国電力の停電情報を取得する関数 (四国4県リアルタイム対応版)
 # ---------------------------------------------------------
+PREFECTURE_URLS = {
+    "香川県": "https://www.yonden.co.jp/nw/teiden-info/kagawa.html",
+    "徳島県": "https://www.yonden.co.jp/nw/teiden-info/tokushima.html",
+    "愛媛県": "https://www.yonden.co.jp/nw/teiden-info/ehime.html",
+    "高知県": "https://www.yonden.co.jp/nw/teiden-info/kochi.html",
+}
+
 @st.cache_data(ttl=300)
 def fetch_outage_info():
-    url = "https://www.yonden.co.jp/nw/teiden-info/history07.html" 
-    try:
-        response = requests.get(url, timeout=10)
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
-        
-        outage_list = []
-        for tr in soup.find_all("tr"):
-            pre_elem = tr.find("th", class_="pre")
-            city_elem = tr.find("td", class_="city")
-            town_elem = tr.find("td", class_="town")
+    outage_list = []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+
+    for pref_name, url in PREFECTURE_URLS.items():
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.encoding = response.apparent_encoding
+            soup = BeautifulSoup(response.text, "html.parser")
+            body_text = soup.get_text()
+
+            # 発表日時の抽出（例: 2026年8月11日 22時15分 現在）
+            time_match = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分\s*現在)", body_text)
+            announced_at = time_match.group(1) if time_match else "日時不明"
+
+            no_outage = "停電情報はありません" in body_text
+            tables = soup.find_all("table")
+
+            if not no_outage and tables:
+                for table in tables:
+                    for row in table.find_all("tr"):
+                        cols = [ele.text.strip() for ele in row.find_all(["td", "th"])]
+                        if not cols or "発生日時" in cols[0]:
+                            continue
+                        if len(cols) >= 2:
+                            city = cols[0]
+                            raw_towns = cols[1]
+                            towns = [t.strip() for t in re.split(r"[、\s]+", raw_towns) if t.strip()]
+                            outage_list.append({
+                                "prefecture": pref_name,
+                                "city": city,
+                                "towns": towns,
+                                "raw_towns": raw_towns,
+                                "announced_at": announced_at
+                            })
+        except Exception:
+            continue
             
-            if city_elem and town_elem:
-                pre = pre_elem.text.strip() if pre_elem else ""
-                city = city_elem.text.strip()
-                towns_raw = town_elem.text.strip()
-                towns = [t.strip() for t in re.split(r"[、\s]+", towns_raw) if t.strip()]
-                outage_list.append({"prefecture": pre, "city": city, "towns": towns, "raw_towns": towns_raw})
-        return outage_list
-    except Exception:
-        return []
+    return outage_list
 
 # ---------------------------------------------------------
 # 2. デモ用データ・添付ファイルDL関数
@@ -131,8 +163,6 @@ def generate_50_kagawa_patients():
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
-        
-        # 修正: 下2桁を「XX」にした11桁の電話番号形式（例: 090-1234-56XX）
         tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99):02d}XX"
         
         device = random.choices(device_options, weights=device_weights)[0]
@@ -289,15 +319,22 @@ if mode == "仮想シミュレーションモード":
         st.caption("現在のテスト対象エリア: **指定なし（全員正常）**")
 
 else:
-    st.subheader("1. Webリアルタイム停電情報")
+    st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
     outage_data = fetch_outage_info()
     created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     
     if outage_data:
-        outage_df_display = [{"都道府県": item["prefecture"], "市区町村": item["city"], "対象町名": item["raw_towns"]} for item in outage_data]
+        outage_df_display = [
+            {
+                "都道府県": item["prefecture"], 
+                "市区町村": item["city"], 
+                "対象町名": item["raw_towns"],
+                "サイト発表日時": item.get("announced_at", "-")
+            } for item in outage_data
+        ]
         st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
     else:
-        st.warning("現在、Webサイト上に該当する停電情報はありません。")
+        st.success("現在、四国4県全域でWebサイト上に該当する停電情報はありません。")
 
 # --- 照合ロジック ---
 def check_outage(address, outage_list):
@@ -385,7 +422,6 @@ def build_map(df, target_only=False, home_address=""):
     else:
         display_df = df
 
-    # デフォルトの初期座標（高松シンボルタワー）
     home_lat, home_lon = geocode_address(home_address)
     
     m = folium.Map(location=[home_lat, home_lon], zoom_start=15)
@@ -444,7 +480,6 @@ def build_map(df, target_only=False, home_address=""):
         
         bounds_points.append([row["lat"], row["lon"]])
 
-    # 全ピンが均等に収まる範囲へフィット（最大ズームを制限してズームイン表示を維持）
     if len(bounds_points) > 1:
         min_lat = min(p[0] for p in bounds_points)
         max_lat = max(p[0] for p in bounds_points)
@@ -641,8 +676,10 @@ else:
         st_folium(m_target, width="100%", height=450)
 
 # --- テーブル編集時のセッション更新処理 ---
-if "table_editor" in st.session_state and st.session_state.table_editor.get("edited_rows"):
-    edited_rows = st.session_state.table_editor["edited_rows"]
+editor_key = "table_editor" if layout_option == "左右並べ（PC・大画面向け）" else "table_editor_tab"
+
+if editor_key in st.session_state and st.session_state[editor_key].get("edited_rows"):
+    edited_rows = st.session_state[editor_key]["edited_rows"]
     updated_flag = False
     for row_idx, changes in edited_rows.items():
         p_id = display_target_df.iloc[row_idx]["ID"]
