@@ -14,6 +14,9 @@ import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 
+# 自動リロード用ライブラリ
+from streamlit_autorefresh import st_autorefresh
+
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -27,6 +30,9 @@ JST = timezone(timedelta(hours=9))
 
 # ページ基本設定
 st.set_page_config(page_title="停電アラート", layout="wide")
+
+# 🔄 5分（300,000ミリ秒）ごとに画面を自動リロード
+st_autorefresh(interval=300000, key="data_auto_refresh")
 
 st.title("⚡ 停電アラート")
 st.caption("リアルタイムの停電情報と患者リストを照合し、優先度自動トリアージとナビ連携で初動対応を支援します。")
@@ -123,6 +129,10 @@ def fetch_outage_info():
             
     return outage_list
 
+# ★ モードに関わらずバックグラウンドで常にWeb最新データを同期取得・キャッシュ更新する処理
+bg_realtime_outage_data = fetch_outage_info()
+st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+
 # ---------------------------------------------------------
 # 2. デモ用データ・添付ファイルDL関数
 # ---------------------------------------------------------
@@ -138,7 +148,7 @@ def generate_50_kagawa_patients():
         "香川県高松市中新町", "香川県高松市藤塚町1丁目", "香川県高松市天神前", "香川県高松市錦町1丁目",
         "香川県高松市番町1丁目", "香川県高松市番町3丁目", "香川県高松市瓦町1丁目", "香川県高松市塩上町1丁目",
         "香川県高松市観光通1丁目", "香川県高松市木太町", "香川県高松市伏石町", "香川県高松市太田上町",
-        "香川県高松市多肥上町", "香川県高松市多肥下町", "香川県高松市今里町1丁目", "香川県高松市松縄町",
+        "香川県多肥上町", "香川県高松市多肥下町", "香川県高松市今里町1丁目", "香川県高松市松縄町",
         "香川県高松市林町", "香川県高松市三条町", "香川県高松市一宮町", "香川県高松市香西本町",
         "香川県高松市香西南町", "香川県高松市屋島西町", "香川県高松市屋島中町", "香川県高松市春日町",
         "香川県高松市川島東町", "香川県高松市福岡町1丁目", "香川県高松市福岡町3丁目", "香川県高松市古馬場町",
@@ -314,22 +324,23 @@ if mode == "仮想シミュレーションモード":
     
     created_time_str = st.session_state.sim_created_time
     if st.session_state.sim_areas:
-        st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
+        st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}** (バックグラウンドで5分ごとにWebデータ自動更新中: {st.session_state.last_fetch_time})")
     else:
-        st.caption("現在のテスト対象エリア: **指定なし（全員正常）**")
+        st.caption(f"現在のテスト対象エリア: **指定なし（全員正常）** (バックグラウンドで5分ごとにWebデータ自動更新中: {st.session_state.last_fetch_time})")
 
 else:
-    # リアルタイムWeb取得モード（見出しすぐ横に小さなボタンを配置）
+    # リアルタイムWeb取得モード
     col_rt_title, col_rt_btn, _ = st.columns([4, 1.5, 4.5])
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
     with col_rt_btn:
-        if st.button("🔄 最新情報に更新", help="四国電力の最新データを取得します"):
+        if st.button("🔄 最新情報に更新", help="四国電力の最新データを今すぐ手動で取得します"):
             fetch_outage_info.clear() # キャッシュクリア
+            bg_realtime_outage_data = fetch_outage_info()
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.rerun()
 
-    outage_data = fetch_outage_info()
+    outage_data = bg_realtime_outage_data
     created_time_str = st.session_state.last_fetch_time
     
     if outage_data:
