@@ -123,7 +123,7 @@ def generate_50_kagawa_patients():
     
     for i in range(1, 51):
         name = f"{random.choice(last_names)} {random.choice(first_names)}"
-        spot_addr = spots_shuffled[i - 1] # 50名それぞれ別々のエリアを割り当て
+        spot_addr = spots_shuffled[i - 1]
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
@@ -250,20 +250,27 @@ created_time_str = ""
 if mode == "仮想シミュレーションモード":
     st.subheader("1. 停電エリア・シミュレーター")
     
-    col_input, col_btn, _ = st.columns([4, 2, 6])
+    col_input, col_btn1, col_btn2, _ = st.columns([4, 2, 1.5, 4.5])
     with col_input:
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
             value=",".join(st.session_state.sim_areas),
             placeholder="例: 宮脇町, 木太町, 栗林町1丁目"
         )
-    with col_btn:
+    with col_btn1:
         st.write(" ")
         st.write(" ")
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.success("シミュレーションを実行・作成日時を更新しました！")
+    with col_btn2:
+        st.write(" ")
+        st.write(" ")
+        if st.button("🔄 リセット", use_container_width=True):
+            st.session_state.sim_areas = []
+            st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.rerun()
 
     for area in st.session_state.sim_areas:
         outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
