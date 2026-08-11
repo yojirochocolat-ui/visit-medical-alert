@@ -199,11 +199,9 @@ if uploaded_file is not None:
             new_df["lat"] = lats
             new_df["lon"] = lons
 
-            # IDをキーにした上書き・追加（結合）処理
             current_df = st.session_state.patients_data.set_index("ID")
             new_df = new_df.set_index("ID")
             
-            # 既存のIDは新データで上書き、新しいIDは末尾に追加
             updated_df = new_df.combine_first(current_df).reset_index()
             st.session_state.patients_data = updated_df
             
@@ -264,21 +262,20 @@ def check_outage(address, outage_list):
     return False, "正常"
 
 def calc_triage_level(device, battery):
-    """緊急度・トリアージレベルを自動算出"""
+    """緊急度・トリアージレベルを自動算出（簡略化表記）"""
     d = str(device)
     b = str(battery)
     if "人工呼吸器" in d:
-        return "Lv.4 (極めて危険)", 4
+        return "Lv.4", 4
     elif "人工透析" in d or "在宅酸素" in d:
-        return "Lv.3 (高リスク)", 3
+        return "Lv.3", 3
     elif d != "なし":
         if b in ["ー", "？"]:
-            return "Lv.3 (高リスク)", 3
-        return "Lv.2 (中リスク)", 2
-    return "Lv.1 (要確認)", 1
+            return "Lv.3", 3
+        return "Lv.2", 2
+    return "Lv.1", 1
 
 results = []
-alerts = []
 
 for idx, row in st.session_state.patients_data.iterrows():
     p_id = str(row.get("ID", f"P{idx+1:03d}"))
@@ -286,16 +283,25 @@ for idx, row in st.session_state.patients_data.iterrows():
     
     triage_label, triage_score = calc_triage_level(row.get("使用装置", "なし"), row.get("バッテリ", "ー"))
     
-    status_info = st.session_state.patient_status.get(p_id, {"status": "未対応", "updated_at": "-"})
+    # 既存セッションの個別編集状態を優先
+    status_info = st.session_state.patient_status.get(p_id, {})
+    current_status = status_info.get("status", "未対応")
+    updated_at = status_info.get("updated_at", "-")
+    
+    # 手動オーバーライドされた停電リスクがある場合は適用
+    if "override_outage" in status_info:
+        current_outage_str = status_info["override_outage"]
+    else:
+        current_outage_str = "⚠️ 停電可能性あり" if is_outage else "🟢 正常"
     
     results.append({
         "ID": p_id,
-        "対応ステータス": status_info["status"],
-        "更新時刻": status_info["updated_at"],
-        "停電リスク": "⚠️ 停電可能性あり" if is_outage else "🟢 正常",
+        "対応ステータス": current_status,
+        "更新時刻": updated_at,
+        "停電リスク": current_outage_str,
         "トリアージ": triage_label,
         "triage_score": triage_score,
-        "検知エリア": area_info if is_outage else "-",
+        "検知エリア": area_info if "⚠️" in current_outage_str else "-",
         "患者名": row["患者名"],
         "使用装置": row.get("使用装置", "なし"),
         "バッテリ": row.get("バッテリ", "ー"),
@@ -306,8 +312,6 @@ for idx, row in st.session_state.patients_data.iterrows():
         "lat": float(row.get("lat", 34.3400)),
         "lon": float(row.get("lon", 134.0450))
     })
-    if is_outage:
-        alerts.append(row)
 
 df_result = pd.DataFrame(results)
 
@@ -317,8 +321,11 @@ df_result = df_result.sort_values(
     by=["risk_sort", "triage_score"], ascending=[True, False]
 ).drop(columns=["risk_sort"])
 
+# 警報対象者（現在⚠️となっている人）
+alerts = df_result[df_result["停電リスク"].str.contains("⚠️")]
+
 # ---------------------------------------------------------
-# 5. 地図描画関数 (電話発信・Googleマップナビリンク対応)
+# 5. 地図描画関数
 # ---------------------------------------------------------
 def build_map(df, target_only=False):
     if target_only:
@@ -341,7 +348,6 @@ def build_map(df, target_only=False):
         color = "red" if is_alert else "green"
         icon_type = "exclamation-triangle" if is_alert else "user"
         
-        # Google Map ナビ用 URL 生成
         nav_url = f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote(str(row['住所']))}"
         tel_clean = str(row['連絡先']).replace("-", "")
         
@@ -410,7 +416,7 @@ def create_pdf_report(df_alert_patients, created_time):
             Paragraph(str(row["住所"]), cell_style)
         ])
 
-    t = Table(table_data, colWidths=[25, 65, 45, 45, 65, 30, 45, 65, 145])
+    t = Table(table_data, colWidths=[25, 45, 45, 45, 65, 30, 45, 65, 165])
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -443,10 +449,9 @@ st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
 
 df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
 
-if len(alerts) > 0:
-    # トリアージごとのカウント計算
-    lv4_cnt = len(df_alert_only[df_alert_only["トリアージ"].str.contains("Lv.4")])
-    st.error(f"🚨 停電エリア内に該当する患者が **{len(alerts)} 名** ピックアップされました！（うち【最優先 Lv.4】: **{lv4_cnt} 名**）")
+if len(df_alert_only) > 0:
+    lv4_cnt = len(df_alert_only[df_alert_only["トリアージ"] == "Lv.4"])
+    st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_only)} 名** ピックアップされました！（うち【最優先 Lv.4】: **{lv4_cnt} 名**）")
     
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
@@ -472,37 +477,70 @@ else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
 # --- 未対応フィルター & アクション機能 ---
-filter_col1, filter_col2 = st.columns([2, 3])
+filter_col1, _ = st.columns([2, 3])
 with filter_col1:
     only_unhandled = st.checkbox("🔍 未対応の患者のみに絞り込む", value=False)
 
 if only_unhandled:
     display_target_df = df_result[df_result["対応ステータス"] == "未対応"]
 else:
-    display_target_df = df_result
+    display_target_df = df_result.copy()
 
-def highlight_row(val):
-    if "Lv.4" in str(val):
-        return "background-color: #ffcccc; font-weight: bold; color: #990000;"
-    elif "Lv.3" in str(val):
-        return "background-color: #fff0bb; font-weight: bold; color: #8a6d3b;"
-    return ""
+display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 
-display_cols = ["ID", "対応ステータス", "トリアージ", "停電リスク", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
+st.info("💡 **テーブルのセル（対応ステータス・停電リスク）を直接クリックしてプルダウン変更が可能です。**")
+
+# ---------------------------------------------------------
+# データエディタ（直接編集）用設定
+# ---------------------------------------------------------
+column_config = {
+    "対応ステータス": st.column_config.SelectboxColumn(
+        "対応ステータス",
+        options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"],
+        required=True
+    ),
+    "停電リスク": st.column_config.SelectboxColumn(
+        "停電リスク",
+        options=["⚠️ 停電可能性あり", "🟢 正常"],
+        required=True
+    ),
+    "ID": st.column_config.TextColumn("ID", disabled=True),
+    "トリアージ": st.column_config.TextColumn("トリアージ", disabled=True),
+    "患者名": st.column_config.TextColumn("患者名", disabled=True),
+    "使用装置": st.column_config.TextColumn("使用装置", disabled=True),
+    "バッテリ": st.column_config.TextColumn("バッテリ", disabled=True),
+    "担当医": st.column_config.TextColumn("担当医", disabled=True),
+    "連絡先": st.column_config.TextColumn("連絡先", disabled=True),
+    "住所": st.column_config.TextColumn("住所", disabled=True),
+}
 
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
-        st.markdown("#### 📋 患者リスト (優先度順)")
-        st.dataframe(display_target_df[display_cols].style.map(highlight_row, subset=["トリアージ"]), use_container_width=True, height=450)
+        st.markdown("#### 📋 患者リスト (表内で直接編集可)")
+        edited_df = st.data_editor(
+            display_target_df[display_cols],
+            column_config=column_config,
+            use_container_width=True,
+            height=450,
+            hide_index=True,
+            key="table_editor"
+        )
     with col2:
         st.markdown("#### 🗺️ 訪問エリアマップ (赤:停電 / 緑:正常)")
         m = build_map(display_target_df)
         st_folium(m, width="100%", height=450)
 else:
-    tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみ拡大マップ"])
+    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(編集可)", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみ拡大マップ"])
     with tab1:
-        st.dataframe(display_target_df[display_cols].style.map(highlight_row, subset=["トリアージ"]), use_container_width=True, height=450)
+        edited_df = st.data_editor(
+            display_target_df[display_cols],
+            column_config=column_config,
+            use_container_width=True,
+            height=450,
+            hide_index=True,
+            key="table_editor_tab"
+        )
     with tab2:
         m = build_map(display_target_df, target_only=False)
         st_folium(m, width="100%", height=450)
@@ -510,45 +548,40 @@ else:
         m_target = build_map(display_target_df, target_only=True)
         st_folium(m_target, width="100%", height=450)
 
-# ---------------------------------------------------------
-# 8. 現場・初動対応ステータス更新パネル
-# ---------------------------------------------------------
-st.markdown("---")
-st.subheader("3. 📝 現場対応状況の更新 (ステータス管理)")
-
-if len(df_alert_only) > 0:
-    target_p = st.selectbox("対応を更新する患者を選択してください", options=df_alert_only["ID"] + " : " + df_alert_only["患者名"] + " (" + df_alert_only["トリアージ"] + ")")
-    selected_p_id = target_p.split(" : ")[0]
-    
-    col_s1, col_s2, col_s3 = st.columns([2, 2, 1])
-    with col_s1:
-        new_status = st.selectbox("現在のステータス", ["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], key=f"select_{selected_p_id}")
-    with col_s2:
-        st.write(" ")
-        st.write(" ")
-        if st.button("💾 対応ステータスを更新", use_container_width=True):
-            st.session_state.patient_status[selected_p_id] = {
-                "status": new_status,
-                "updated_at": datetime.now(JST).strftime("%H:%M")
-            }
-            st.success(f"ID: {selected_p_id} のステータスを【{new_status}】に更新しました！")
-            st.rerun()
-else:
-    st.info("現在、対応ステータスを更新する停電対象患者はいません。")
+# --- テーブル編集時のセッション更新処理 ---
+if "table_editor" in st.session_state and st.session_state.table_editor.get("edited_rows"):
+    edited_rows = st.session_state.table_editor["edited_rows"]
+    updated_flag = False
+    for row_idx, changes in edited_rows.items():
+        p_id = display_target_df.iloc[row_idx]["ID"]
+        if p_id not in st.session_state.patient_status:
+            st.session_state.patient_status[p_id] = {}
+        
+        if "対応ステータス" in changes:
+            st.session_state.patient_status[p_id]["status"] = changes["対応ステータス"]
+            st.session_state.patient_status[p_id]["updated_at"] = datetime.now(JST).strftime("%H:%M")
+            updated_flag = True
+        
+        if "停電リスク" in changes:
+            st.session_state.patient_status[p_id]["override_outage"] = changes["停電リスク"]
+            updated_flag = True
+            
+    if updated_flag:
+        st.rerun()
 
 # ---------------------------------------------------------
-# 9. アナウンス通知機能（デモ）
+# 8. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
 st.markdown("---")
-st.subheader("4. 初動用アナウンスメール送信（デモ）")
+st.subheader("3. 初動用アナウンスメール送信（デモ）")
 target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
 
 if st.button("📧 対象患者のアラート通知を一括送信"):
-    if len(alerts) > 0:
+    if len(df_alert_only) > 0:
         st.write("**【医師へ送信される自動アナウンスプレビュー】**")
         for idx, row in df_alert_only.iterrows():
             st.code(f"""
-件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様 / {row['トリアージ']}）
+件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様 / トリアージ: {row['トリアージ']}）
 宛先: {target_email} ({row['担当医']}御中)
 
 {row['担当医']} 先生
@@ -560,6 +593,6 @@ if st.button("📧 対象患者のアラート通知を一括送信"):
 
 有事の初動対応および安否・医療機器の動作確認をお願いいたします。
             """, language="text")
-        st.success(f"✅ {len(alerts)} 件の通知メッセージを作成・送信処理（デモ）しました。")
+        st.success(f"✅ {len(df_alert_only)} 件の通知メッセージを作成・送信処理（デモ）しました。")
     else:
         st.info("停電対象患者がいないため通知は送信されません。")
