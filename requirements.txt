@@ -6,3 +6,4 @@ folium
 streamlit-folium
 reportlab
 openpyxl
+streamlit-autorefresh
