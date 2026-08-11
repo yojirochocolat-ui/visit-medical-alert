@@ -32,7 +32,6 @@ st.caption("リアルタイムの停電情報と患者リストを照合し、�
 # ---------------------------------------------------------
 # セッション状態の初期化
 # ---------------------------------------------------------
-# 【変更】初期状態はエリア空欄（全員正常リスク）
 if "sim_areas" not in st.session_state:
     st.session_state.sim_areas = []
 if "sim_created_time" not in st.session_state:
@@ -95,12 +94,12 @@ def generate_50_kagawa_patients():
     first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "大輔", "美咲", "直樹", "裕子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
-    # 【変更】高松市内の多様な地域・町名に分散
+    # 全20エリア（各エリア2〜3名ずつ均等配分されて合計50名になるリスト）
     kagawa_spots = [
+        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市栗林町3丁目",
         "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
         "香川県高松市昭和町1丁目", "香川県高松市昭和町2丁目",
         "香川県高松市茜町", 
-        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市栗林町3丁目",
         "香川県高松市扇町1丁目", "香川県高松市扇町2丁目",
         "香川県高松市紫雲町",
         "香川県高松市中新町",
@@ -109,8 +108,7 @@ def generate_50_kagawa_patients():
         "香川県高松市錦町1丁目", "香川県高松市錦町2丁目",
         "香川県高松市番町1丁目", "香川県高松市番町2丁目", "香川県高松市番町3丁目", "香川県高松市番町4丁目",
         "香川県高松市瓦町1丁目", "香川県高松市瓦町2丁目",
-        "香川県高松市塩上町1丁目", "香川県高松市観光通1丁目",
-        "香川県丸亀市大手町1丁目", "香川県綾歌郡宇多津町濱五番丁"
+        "香川県高松市塩上町1丁目", "香川県高松市観光通1丁目"
     ]
     
     device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
@@ -119,11 +117,12 @@ def generate_50_kagawa_patients():
     patients = []
     random.seed(42)
     
+    # 25エリアに順番に割り当てることで、1つのエリアあたりちょうど2名（50名÷25エリア＝各2名）に均等分散
     for i in range(1, 51):
         name = f"{random.choice(last_names)} {random.choice(first_names)}"
-        spot_addr = random.choice(kagawa_spots)
+        spot_addr = kagawa_spots[(i - 1) % len(kagawa_spots)] # 均等配分処理
         p_id = f"P{i:03d}"
-        addr = f"{spot_addr}{random.randint(1, 20)}-{random.randint(1, 15)}"
+        addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
         tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}0"
         
@@ -167,7 +166,7 @@ if st.session_state.patients_data is None:
     random.seed(123)
     for _, r in initial_df.iterrows():
         base_lat, base_lon = geocode_address(r["住所"])
-        # 同一住所でピンが完全に重なるのを防ぐための微小オフセット (約20m〜100m程度の拡散)
+        # ピン重複防止用の微小オフセット
         jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
         jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
         lats.append(jitter_lat)
@@ -251,11 +250,10 @@ if mode == "仮想シミュレーションモード":
     
     col_input, col_btn, _ = st.columns([4, 2, 6])
     with col_input:
-        # 【変更】初期状態を空欄に設定
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
             value=",".join(st.session_state.sim_areas),
-            placeholder="例: 宮脇町, 昭和町, 茜町"
+            placeholder="例: 宮脇町, 昭和町, 栗林町1丁目"
         )
     with col_btn:
         st.write(" ")
