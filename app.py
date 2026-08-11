@@ -524,6 +524,9 @@ column_config = {
 
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
+# 変更後の凡例表記
+map_legend_title = "#### 🗺️ 訪問エリアマップ (🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)"
+
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
@@ -537,7 +540,7 @@ if layout_option == "左右並べ（PC・大画面向け）":
             key="table_editor"
         )
     with col2:
-        st.markdown("#### 🗺️ 訪問エリアマップ (赤:未訪問停電 / 灰:安否済 / 緑:正常)")
+        st.markdown(map_legend_title)
         m = build_map(display_target_df)
         st_folium(m, width="100%", height=450)
 else:
@@ -553,9 +556,11 @@ else:
             key="table_editor_tab"
         )
     with tab2:
+        st.markdown(map_legend_title)
         m = build_map(display_target_df, target_only=False)
         st_folium(m, width="100%", height=450)
     with tab3:
+        st.markdown(map_legend_title)
         m_target = build_map(display_target_df, target_only=True)
         st_folium(m_target, width="100%", height=450)
 
