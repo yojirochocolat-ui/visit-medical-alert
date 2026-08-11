@@ -38,6 +38,8 @@ if "sim_areas" not in st.session_state:
     st.session_state.sim_areas = []
 if "sim_created_time" not in st.session_state:
     st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+if "last_fetch_time" not in st.session_state:
+    st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 if "patient_status" not in st.session_state:
     st.session_state.patient_status = {}
 if "patients_data" not in st.session_state:
@@ -50,7 +52,6 @@ if "filter_unhandled" not in st.session_state:
 # ---------------------------------------------------------
 @st.cache_data(ttl=86400)
 def geocode_address(address):
-    # 高松シンボルタワー/現住所（拠点）の場合は直接正確な座標を返す
     if "シンボルタワー" in str(address) or "高松駅" in str(address):
         return 34.3533, 134.0470
     
@@ -94,7 +95,6 @@ def fetch_outage_info():
             soup = BeautifulSoup(response.text, "html.parser")
             body_text = soup.get_text()
 
-            # 発表日時の抽出（例: 2026年8月11日 22時15分 現在）
             time_match = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分\s*現在)", body_text)
             announced_at = time_match.group(1) if time_match else "日時不明"
 
@@ -319,9 +319,19 @@ if mode == "仮想シミュレーションモード":
         st.caption("現在のテスト対象エリア: **指定なし（全員正常）**")
 
 else:
-    st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
+    # リアルタイムWeb取得モード
+    col_rt_title, col_rt_btn = st.columns([7, 3])
+    with col_rt_title:
+        st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
+    with col_rt_btn:
+        st.write(" ")
+        if st.button("🔄 最新情報に更新", use_container_width=True, help="四国電力の最新データを取得します"):
+            fetch_outage_info.clear() # キャッシュクリア
+            st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.rerun()
+
     outage_data = fetch_outage_info()
-    created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+    created_time_str = st.session_state.last_fetch_time
     
     if outage_data:
         outage_df_display = [
@@ -334,7 +344,8 @@ else:
         ]
         st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
     else:
-        st.success("現在、四国4県全域でWebサイト上に該当する停電情報はありません。")
+        # 画像部分の表示調整（最終取得日時を提示）
+        st.success(f"現在（{created_time_str} 取得）、四国4県全域でWebサイト上に該当する停電情報はありません。")
 
 # --- 照合ロジック ---
 def check_outage(address, outage_list):
@@ -414,7 +425,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数（MarkerCluster & 全ピン包含フィット対応）
+# 5. 地図描画関数 (MarkerCluster & 全ピン包含フィット対応)
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -568,7 +579,7 @@ with style_col:
         label_visibility="collapsed"
     )
 
-st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
+st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
