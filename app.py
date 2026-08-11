@@ -195,7 +195,6 @@ def generate_50_kagawa_patients():
     first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
-    # 異なるスポットを明確に割り振る
     kagawa_spots = [
         "香川県高松市番町1丁目",
         "香川県高松市瓦町2丁目",
@@ -240,7 +239,6 @@ if st.session_state.patients_data is None:
     random.seed(101)
     for _, r in initial_df.iterrows():
         lat, lon = geocode_address(r["住所"])
-        # 重なり防止のため微小なジッター（ズレ）を加算
         lat += (random.random() - 0.5) * 0.003
         lon += (random.random() - 0.5) * 0.003
         lats.append(lat)
@@ -293,6 +291,7 @@ if mode == "🧪 仮想シミュレーション":
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.session_state.show_route = False # 再計算用にルート表示をリセット
             st.success("指定地域で照合を更新しました")
             
     for area in st.session_state.sim_areas:
@@ -361,7 +360,7 @@ df_visit_needed = df_result[
 ]
 
 # ---------------------------------------------------------
-# 全対象（1〜9）を結ぶ最適ルート計算
+# 最適ルート計算関数
 # ---------------------------------------------------------
 def calculate_optimal_route(start_lat, start_lon, target_df):
     unvisited = target_df.copy().to_dict('records')
@@ -398,7 +397,7 @@ with m3:
     st.markdown(f'<div class="metric-card"><div class="metric-value metric-danger">{len(df_visit_needed)}</div><div class="metric-label">🚗 要訪問・未対応</div></div>', unsafe_allow_html=True)
 with m4:
     total_km = df_route["distance_from_prev_km"].sum() if not df_route.empty else 0
-    val_str = f"{round(total_km, 1)} km"
+    val_str = f"{round(total_km, 1)} km" if st.session_state.show_route else "ー"
     st.markdown(f'<div class="metric-card"><div class="metric-value">{val_str}</div><div class="metric-label">🗺️ 巡回ルート長</div></div>', unsafe_allow_html=True)
 
 # ---------------------------------------------------------
@@ -410,37 +409,49 @@ display_cols = ["ID", "対応ステータス", "停電リスク", "トリアー�
 st.dataframe(df_result[display_cols], use_container_width=True, height=280)
 
 # ---------------------------------------------------------
-# 3. 🗺️ 巡回ルート提案 & マップ描画（1〜9全件を一本線で連結）
+# 3. 🗺️ マップ ＆ 巡回ルート提案
 # ---------------------------------------------------------
-st.markdown('<div class="section-title">3. 🗺️ 巡回ルート提案 & マップ</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">3. 🗺️ 訪問対象マップ & 巡回ルート</div>', unsafe_allow_html=True)
 
-if st.button("🗺️ 巡回ルートを計算・表示", type="primary"):
-    st.session_state.show_route = True
+col_btn1, col_btn2 = st.columns([1, 4])
+with col_btn1:
+    if st.button("🗺️ 巡回ルートを計算・表示", type="primary"):
+        st.session_state.show_route = True
 
-if st.session_state.show_route:
-    if not df_route.empty:
-        col_map, col_info = st.columns([3, 2])
-        with col_map:
-            # マップ初期表示
-            m = folium.Map(location=[doc_lat, doc_lon], zoom_start=13, tiles="OpenStreetMap")
-            
-            # 拠点マーカー
-            folium.Marker(
-                location=[doc_lat, doc_lon],
-                popup=f"<b>🏁 出発拠点</b><br>{st.session_state.doctor_address}",
-                tooltip="🏁 出発拠点（現在地）",
-                icon=folium.Icon(color="black", icon="home", prefix="fa")
-            ).add_to(m)
-            
-            # 全通過点（拠点 ➔ 1 ➔ 2 ➔ 3 ➔ ... ➔ 9）の座標を順番に格納
+if not df_visit_needed.empty:
+    col_map, col_info = st.columns([3, 2])
+    with col_map:
+        m = folium.Map(location=[doc_lat, doc_lon], zoom_start=13, tiles="OpenStreetMap")
+        
+        # 拠点マーカー
+        folium.Marker(
+            location=[doc_lat, doc_lon],
+            popup=f"<b>🏁 出発拠点</b><br>{st.session_state.doctor_address}",
+            tooltip="🏁 出発拠点（現在地）",
+            icon=folium.Icon(color="black", icon="home", prefix="fa")
+        ).add_to(m)
+
+        # モードA: ボタンを押す前（対象患者の位置に赤ピンのみ表示）
+        if not st.session_state.show_route:
+            for _, row in df_visit_needed.iterrows():
+                pt = [float(row["lat"]), float(row["lon"])]
+                folium.Marker(
+                    location=pt,
+                    popup=f"<b>{row['患者名']} 様</b><br>{row['トリアージ']}<br>{row['住所']}",
+                    tooltip=f"⚠️ {row['患者名']} 様",
+                    icon=folium.Icon(color="red", icon="user", prefix="fa")
+                ).add_to(m)
+            st_folium(m, width="100%", height=480)
+
+        # モードB: ボタンを押した後（順序付きピン＆巡回ルート線描画）
+        else:
             route_points = [[doc_lat, doc_lon]]
-            
             for _, row in df_route.iterrows():
                 order = int(row["visit_order"])
                 pt = [float(row["lat"]), float(row["lon"])]
                 route_points.append(pt)
                 
-                # 視認性の高いカスタム数字アイコン
+                # 数字付きのカスタムマーカー
                 icon_html = f"""
                 <div style="
                     background-color: #DC2626;
@@ -469,7 +480,7 @@ if st.session_state.show_route:
                     )
                 ).add_to(m)
             
-            # 全通過点を一直線（全ルート）で繋ぐ青ライン
+            # 各ルートを青い線で重畳描画
             folium.PolyLine(
                 route_points,
                 color="#2563EB",
@@ -479,7 +490,13 @@ if st.session_state.show_route:
             
             st_folium(m, width="100%", height=480)
             
-        with col_info:
+    with col_info:
+        if not st.session_state.show_route:
+            st.info("💡 「巡回ルートを計算・表示」ボタンを押すと、トリアージと距離を考慮した最適な訪問順序と巡回ルートが描画されます。")
+            st.markdown(**【訪問対象患者】**)
+            for _, r in df_visit_needed.iterrows():
+                st.markdown(f"- ⚠️ **{r['患者名']} 様** ({r['トリアージ']}) - {r['住所']}")
+        else:
             st.markdown(f"**📍 出発地:** `{st.session_state.doctor_address}`")
             st.markdown(f"**🚗 巡回件数:** `{len(df_route)} 件` | **総距離:** `{round(df_route['distance_from_prev_km'].sum(), 1)} km`")
             
@@ -500,8 +517,8 @@ if st.session_state.show_route:
                     📍 {r['住所']} <span style="opacity:0.8; font-size:0.85rem;">(前地点より {r['distance_from_prev_km']}km)</span>
                 </div>
                 """, unsafe_allow_html=True)
-    else:
-        st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
+else:
+    st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
 
 # ---------------------------------------------------------
 # 4. メール機能
