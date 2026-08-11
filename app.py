@@ -319,13 +319,12 @@ if mode == "仮想シミュレーションモード":
         st.caption("現在のテスト対象エリア: **指定なし（全員正常）**")
 
 else:
-    # リアルタイムWeb取得モード
-    col_rt_title, col_rt_btn = st.columns([7, 3])
+    # リアルタイムWeb取得モード（見出しすぐ横に小さなボタンを配置）
+    col_rt_title, col_rt_btn, _ = st.columns([4, 1.5, 4.5])
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
     with col_rt_btn:
-        st.write(" ")
-        if st.button("🔄 最新情報に更新", use_container_width=True, help="四国電力の最新データを取得します"):
+        if st.button("🔄 最新情報に更新", help="四国電力の最新データを取得します"):
             fetch_outage_info.clear() # キャッシュクリア
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.rerun()
@@ -344,7 +343,6 @@ else:
         ]
         st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
     else:
-        # 画像部分の表示調整（最終取得日時を提示）
         st.success(f"現在（{created_time_str} 取得）、四国4県全域でWebサイト上に該当する停電情報はありません。")
 
 # --- 照合ロジック ---
