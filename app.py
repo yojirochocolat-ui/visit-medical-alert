@@ -5,17 +5,11 @@ import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import urllib.parse
 
 from bs4 import BeautifulSoup
 import folium
 import pandas as pd
-from reportlab.lib import colors
-# PDF生成用ライブラリ
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 import requests
 import streamlit as st
 from streamlit_folium import st_folium
@@ -30,7 +24,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# カスタムCSS
+# カスタムCSS（Light/Darkモード両対応デザイン）
 # ---------------------------------------------------------
 custom_css = """
 <style>
@@ -43,52 +37,44 @@ custom_css = """
     .main-header {
         font-size: 2.0rem;
         font-weight: 700;
-        color: #0F172A;
-        letter-spacing: -0.02em;
         margin-bottom: 0.2rem;
     }
     .sub-header {
         font-size: 0.95rem;
-        color: #64748B;
+        opacity: 0.8;
         margin-bottom: 1.5rem;
     }
     
+    /* テーマ（Light/Dark）に対応するカードデザイン */
     .metric-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
+        background-color: var(--background-secondary-color, rgba(128, 128, 128, 0.08));
+        border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
         border-radius: 12px;
         padding: 1.25rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
         text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     .metric-value {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #0F172A;
     }
     .metric-label {
         font-size: 0.85rem;
-        color: #64748B;
+        opacity: 0.8;
         margin-top: 0.2rem;
     }
     .metric-danger {
-        color: #DC2626;
+        color: #EF4444;
     }
     
     .section-title {
         font-size: 1.15rem;
         font-weight: 600;
-        color: #1E293B;
         margin-top: 1.5rem;
         margin-bottom: 0.8rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
-    }
-
-    [data-testid="stSidebar"] {
-        background-color: #F8FAFC;
-        border-right: 1px solid #E2E8F0;
     }
 </style>
 """
@@ -119,13 +105,14 @@ if "patients_data" not in st.session_state:
   st.session_state.patients_data = None
 if "doctor_address" not in st.session_state:
   st.session_state.doctor_address = "香川県高松市サンポート"
+if "show_route" not in st.session_state:
+  st.session_state.show_route = False
 
 
 # ---------------------------------------------------------
-# メール送信機能 (SMTP & Reply-To対応)
+# メール送信機能
 # ---------------------------------------------------------
 def send_email_alert(to_email, reply_to_email, subject, body, smtp_config):
-  """指定されたメールアドレスにアラートメールを送信する関数 (Reply-To対応)"""
   if (
       not smtp_config.get("server")
       or not smtp_config.get("sender_email")
@@ -142,7 +129,6 @@ def send_email_alert(to_email, reply_to_email, subject, body, smtp_config):
     msg["To"] = to_email
     msg["Subject"] = subject
 
-    # 返信先（Reply-To）の設定
     if reply_to_email and reply_to_email.strip():
       msg["Reply-To"] = reply_to_email.strip()
     else:
@@ -305,7 +291,7 @@ if st.session_state.patients_data is None:
   st.session_state.patients_data = initial_df
 
 # ---------------------------------------------------------
-# サイドバー設定 & メール環境設定
+# サイドバー設定
 # ---------------------------------------------------------
 st.sidebar.markdown("### 🚗 医師・訪問チーム設定")
 doctor_loc_input = st.sidebar.text_input(
@@ -319,7 +305,6 @@ doc_lat, doc_lon = geocode_address(st.session_state.doctor_address)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📧 メール送信・返信先設定")
 
-# secretsからデフォルト値を取得
 default_smtp = st.secrets.get("smtp", {})
 smtp_server = st.sidebar.text_input(
     "SMTPサーバー", value=default_smtp.get("server", "smtp.gmail.com")
@@ -330,20 +315,15 @@ smtp_port = st.sidebar.number_input(
 sender_email = st.sidebar.text_input(
     "送信元メール (システム)",
     value=default_smtp.get("sender_email", ""),
-    help="自動送信に使用するシステムのアドレス",
 )
 sender_password = st.sidebar.text_input(
     "パスワード",
     value=default_smtp.get("password", ""),
     type="password",
-    help="Gmailの場合はアプリパスワード(16桁)",
 )
-
-# 返信先（Reply-To）の設定欄
 reply_to_email = st.sidebar.text_input(
     "✉️ 返信先メールアドレス (任意)",
     value=default_smtp.get("reply_to", sender_email),
-    help="相手が「返信」ボタンを押した際のアドレス。未入力の場合は送信元になります。",
 )
 
 smtp_config = {
@@ -464,9 +444,14 @@ for idx, row in st.session_state.patients_data.iterrows():
 
 df_result = pd.DataFrame(results)
 
+df_visit_needed = df_result[
+    (df_result["停電リスク"].str.contains("⚠️"))
+    & (df_result["対応ステータス"].isin(["未対応", "緊急訪問中"]))
+]
+
 
 # ---------------------------------------------------------
-# 最適訪問ルート計算
+# 最適訪問ルート計算ロジック
 # ---------------------------------------------------------
 def calculate_optimal_route(start_lat, start_lon, target_df):
   unvisited = target_df.copy().to_dict("records")
@@ -490,17 +475,12 @@ def calculate_optimal_route(start_lat, start_lon, target_df):
   return pd.DataFrame(route)
 
 
-df_visit_needed = df_result[
-    (df_result["停電リスク"].str.contains("⚠️"))
-    & (df_result["対応ステータス"].isin(["未対応", "緊急訪問中"]))
-]
-
 df_route = pd.DataFrame()
 if not df_visit_needed.empty:
   df_route = calculate_optimal_route(doc_lat, doc_lon, df_visit_needed)
 
 # ---------------------------------------------------------
-# メトリクス表示（修正完了部分）
+# メトリクス表示
 # ---------------------------------------------------------
 m1, m2, m3, m4 = st.columns(4)
 with m1:
@@ -534,101 +514,134 @@ with m4:
   )
 
 # ---------------------------------------------------------
-# ルートマップ描画
+# 2. 📋 登録患者・停電照合リスト（常時一覧表示）
 # ---------------------------------------------------------
 st.markdown(
-    '<div class="section-title">2. 🗺️ 巡回ルート提案 & マップ</div>',
+    '<div class="section-title">2. 📋 登録患者・停電照合リスト（全件）</div>',
     unsafe_allow_html=True,
 )
 
-if not df_route.empty:
-  col_map, col_info = st.columns([3, 2])
-  with col_map:
-    m = folium.Map(
-        location=[doc_lat, doc_lon], zoom_start=12, tiles="CartoDB positron"
-    )
-    folium.Marker(
-        location=[doc_lat, doc_lon],
-        popup=(
-            f"<b>🏁 出発拠点</b><br>{st.session_state.doctor_address}"
-        ),
-        tooltip="🏁 出発拠点（現在地）",
-        icon=folium.Icon(color="black", icon="home", prefix="fa"),
-    ).add_to(m)
-
-    route_points = [[doc_lat, doc_lon]]
-    for _, row in df_route.iterrows():
-      order = row["visit_order"]
-      route_points.append([row["lat"], row["lon"]])
-      folium.Marker(
-          location=[row["lat"], row["lon"]],
-          popup=(
-              f"<b>#{order} {row['患者名']}</b><br>{row['トリアージ']}<br>{row['住所']}"
-          ),
-          tooltip=f"#{order} {row['患者名']} 様",
-          icon=folium.DivIcon(
-              html=(
-                  f'<div style="background-color:#DC2626; color:white;'
-                  " border-radius:50%; width:28px; height:28px;"
-                  " display:flex; justify-content:center;"
-                  " align-items:center; font-weight:bold; font-size:13px;"
-                  " border:2px solid white; box-shadow:0 2px 4px"
-                  f' rgba(0,0,0,0.3);">{order}</div>'
-              )
-          ),
-      ).add_to(m)
-
-    folium.PolyLine(
-        route_points,
-        color="#2563EB",
-        weight=4,
-        opacity=0.8,
-        dash_array="5, 10",
-    ).add_to(m)
-    st_folium(m, width="100%", height=400)
-
-  with col_info:
-    st.markdown(f"**📍 出発地:** `{st.session_state.doctor_address}`")
-    st.markdown(
-        f"**🚗 巡回件数:** `{len(df_route)} 件` | **総距離:**"
-        f" `{round(df_route['distance_from_prev_km'].sum(), 1)} km`"
-    )
-
-    import urllib.parse
-
-    waypoints = "|".join(
-        [urllib.parse.quote(r["住所"]) for _, r in df_route.iterrows()]
-    )
-    gmap_multi_url = (
-        "https://www.google.com/maps/dir/?api=1&origin="
-        f"{urllib.parse.quote(st.session_state.doctor_address)}&destination="
-        f"{urllib.parse.quote(df_route.iloc[-1]['住所'])}&waypoints="
-        f"{waypoints}"
-    )
-
-    st.markdown(
-        f"""
-        <a href="{gmap_multi_url}" target="_blank" style="display:inline-block; background-color:#2563EB; color:white; padding:8px 14px; border-radius:6px; text-decoration:none; font-weight:600; font-size:13px; margin-bottom:10px;">
-            📱 Googleマップで全巡回ルートを開く
-        </a>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    for _, r in df_route.iterrows():
-      st.markdown(
-          f"**#{r['visit_order']} {r['患者名']}** ({r['トリアージ']})  \n📍"
-          f" {r['住所']} (前地点より `{r['distance_from_prev_km']}km`)"
-      )
-      st.divider()
-else:
-  st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
+display_cols = [
+    "ID",
+    "対応ステータス",
+    "停電リスク",
+    "トリアージ",
+    "患者名",
+    "使用装置",
+    "バッテリ",
+    "住所",
+    "担当医",
+    "連絡先",
+    "更新時刻",
+]
+st.dataframe(
+    df_result[display_cols],
+    use_container_width=True,
+    height=300,
+    column_config={
+        "停電リスク": st.column_config.TextColumn("停電リスク"),
+        "トリアージ": st.column_config.TextColumn("トリアージ"),
+    },
+)
 
 # ---------------------------------------------------------
-# 3. 📧 緊急一括メール配信パネル (Reply-To機能統合)
+# 3. 🗺️ 巡回ルート提案 & マップ（ボタンで表示制御）
 # ---------------------------------------------------------
 st.markdown(
-    '<div class="section-title">3. 📧 緊急メールアラート送信（返信機能付き）</div>',
+    '<div class="section-title">3. 🗺️ 巡回ルート提案 & マップ</div>',
+    unsafe_allow_html=True,
+)
+
+if st.button("🗺️ 巡回ルートを計算・表示", type="primary"):
+  st.session_state.show_route = True
+
+if st.session_state.show_route:
+  if not df_route.empty:
+    col_map, col_info = st.columns([3, 2])
+    with col_map:
+      m = folium.Map(
+          location=[doc_lat, doc_lon], zoom_start=12, tiles="CartoDB positron"
+      )
+      folium.Marker(
+          location=[doc_lat, doc_lon],
+          popup=(
+              f"<b>🏁 出発拠点</b><br>{st.session_state.doctor_address}"
+          ),
+          tooltip="🏁 出発拠点（現在地）",
+          icon=folium.Icon(color="black", icon="home", prefix="fa"),
+      ).add_to(m)
+
+      route_points = [[doc_lat, doc_lon]]
+      for _, row in df_route.iterrows():
+        order = row["visit_order"]
+        route_points.append([row["lat"], row["lon"]])
+        folium.Marker(
+            location=[row["lat"], row["lon"]],
+            popup=(
+                f"<b>#{order} {row['患者名']}</b><br>{row['トリアージ']}<br>{row['住所']}"
+            ),
+            tooltip=f"#{order} {row['患者名']} 様",
+            icon=folium.DivIcon(
+                html=(
+                    f'<div style="background-color:#DC2626; color:white;'
+                    " border-radius:50%; width:28px; height:28px;"
+                    " display:flex; justify-content:center;"
+                    " align-items:center; font-weight:bold; font-size:13px;"
+                    " border:2px solid white; box-shadow:0 2px 4px"
+                    f' rgba(0,0,0,0.3);">{order}</div>'
+                )
+            ),
+        ).add_to(m)
+
+      folium.PolyLine(
+          route_points,
+          color="#2563EB",
+          weight=4,
+          opacity=0.8,
+          dash_array="5, 10",
+      ).add_to(m)
+      st_folium(m, width="100%", height=400)
+
+    with col_info:
+      st.markdown(f"**📍 出発地:** `{st.session_state.doctor_address}`")
+      st.markdown(
+          f"**🚗 巡回件数:** `{len(df_route)} 件` | **総距離:**"
+          f" `{round(df_route['distance_from_prev_km'].sum(), 1)} km`"
+      )
+
+      waypoints = "|".join(
+          [urllib.parse.quote(r["住所"]) for _, r in df_route.iterrows()]
+      )
+      gmap_multi_url = (
+          "https://www.google.com/maps/dir/?api=1&origin="
+          f"{urllib.parse.quote(st.session_state.doctor_address)}&destination="
+          f"{urllib.parse.quote(df_route.iloc[-1]['住所'])}&waypoints="
+          f"{waypoints}"
+      )
+
+      st.markdown(
+          f"""
+          <a href="{gmap_multi_url}" target="_blank" style="display:inline-block; background-color:#2563EB; color:white; padding:8px 14px; border-radius:6px; text-decoration:none; font-weight:600; font-size:13px; margin-bottom:10px;">
+              📱 Googleマップで全巡回ルートを開く
+          </a>
+          """,
+          unsafe_allow_html=True,
+      )
+
+      for _, r in df_route.iterrows():
+        st.markdown(
+            f"**#{r['visit_order']} {r['患者名']}** ({r['トリアージ']})  \n📍"
+            f" {r['住所']} (前地点より `{r['distance_from_prev_km']}km`)"
+        )
+        st.divider()
+  else:
+    st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
+
+# ---------------------------------------------------------
+# 4. 📧 緊急一括メール配信パネル
+# ---------------------------------------------------------
+st.markdown(
+    '<div class="section-title">4. 📧 緊急メールアラート送信（返信機能付き）</div>',
     unsafe_allow_html=True,
 )
 
@@ -653,10 +666,19 @@ with col_m_btn:
 
 if send_trigger:
   if not df_route.empty:
+    waypoints = "|".join(
+        [urllib.parse.quote(r["住所"]) for _, r in df_route.iterrows()]
+    )
+    gmap_multi_url = (
+        "https://www.google.com/maps/dir/?api=1&origin="
+        f"{urllib.parse.quote(st.session_state.doctor_address)}&destination="
+        f"{urllib.parse.quote(df_route.iloc[-1]['住所'])}&waypoints="
+        f"{waypoints}"
+    )
+
     subject = (
         f"【緊急アラート】停電発生による訪問対応依頼（対象 {len(df_route)} 名）"
     )
-
     body = (
         "担当各位\n\nリアルタイム停電アラートシステムより自動通知します。\n"
     )
@@ -701,10 +723,10 @@ if send_trigger:
     st.info("現在、送信対象となる未対応の停電患者はいません。")
 
 # ---------------------------------------------------------
-# 4. 現場ステータス更新
+# 5. 📝 現場ステータス更新
 # ---------------------------------------------------------
 st.markdown(
-    '<div class="section-title">4. 📝 現場ステータス更新</div>',
+    '<div class="section-title">5. 📝 現場ステータス更新</div>',
     unsafe_allow_html=True,
 )
 
@@ -739,3 +761,5 @@ if len(df_visit_needed) > 0:
       }
       st.success("ステータスを更新しました")
       st.rerun()
+else:
+  st.info("現在、対応更新が必要な停電対象患者はいません。")
