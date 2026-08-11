@@ -161,6 +161,14 @@ if st.session_state.patients_data is None:
 # 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
+
+# 【追加機能】現住所（出発地・拠点）の入力欄
+current_location_addr = st.sidebar.text_input(
+    "📍 現住所（拠点・現在地）", 
+    value="香川県高松市番町1丁目1-1",
+    help="マップ上に現在地/拠点ピンとして表示されます"
+)
+
 mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "リアルタイムWeb取得モード"])
 
 st.sidebar.markdown("---")
@@ -220,11 +228,12 @@ created_time_str = ""
 if mode == "仮想シミュレーションモード":
     st.subheader("1. 停電エリア・シミュレーター")
     
-    col_input, col_btn = st.columns([3, 1])
+    col_input, col_btn, _ = st.columns([4, 2, 6])
     with col_input:
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
-            value="高松市番町, 宇多津町"
+            value="",
+            placeholder="例: 高松市番町, 宇多津町"
         )
     with col_btn:
         st.write(" ")
@@ -329,7 +338,7 @@ df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否�
 # ---------------------------------------------------------
 # 5. 地図描画関数
 # ---------------------------------------------------------
-def build_map(df, target_only=False):
+def build_map(df, target_only=False, home_address=""):
     if target_only:
         display_df = df[(df["停電リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
     else:
@@ -345,6 +354,23 @@ def build_map(df, target_only=False):
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
+    # 【追加機能】現住所ピンのプロット
+    if home_address and home_address.strip() != "":
+        h_lat, h_lon = geocode_address(home_address)
+        home_popup = f"""
+        <div style='font-size:12px; width:180px;'>
+            <b style='color:blue;'>📍 現住所（拠点）</b><br>
+            <b>住所:</b> {home_address}
+        </div>
+        """
+        folium.Marker(
+            location=[h_lat, h_lon],
+            popup=folium.Popup(home_popup, max_width=200),
+            tooltip="📍 現住所（拠点）",
+            icon=folium.Icon(color="blue", icon="home", prefix="fa")
+        ).add_to(m)
+
+    # 患者ピンのプロット
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
@@ -463,7 +489,7 @@ if len(df_alert_all) > 0:
     
     st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
     
-    col_dl1, col_dl2 = st.columns(2)
+    col_dl1, col_dl2, _ = st.columns([1, 1, 2])
     with col_dl1:
         pdf_data = create_pdf_report(df_visit_target, created_time_str)
         st.download_button(
@@ -474,7 +500,7 @@ if len(df_alert_all) > 0:
             use_container_width=True
         )
     with col_dl2:
-        m_target_dl = build_map(df_result, target_only=True)
+        m_target_dl = build_map(df_result, target_only=True, home_address=current_location_addr)
         html_data = m_target_dl._repr_html_()
         st.download_button(
             label=f"🗺️ 訪問対象のみ拡大マップ（HTML: {len(df_visit_target)}名）をDL",
@@ -524,8 +550,8 @@ column_config = {
 
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
-# 変更後の凡例表記
-map_legend_title = "#### 🗺️ 訪問エリアマップ (🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)"
+# 【変更】凡例に 🔵 現住所 を小さめ文字で追加
+map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 現住所 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
@@ -540,8 +566,8 @@ if layout_option == "左右並べ（PC・大画面向け）":
             key="table_editor"
         )
     with col2:
-        st.markdown(map_legend_title)
-        m = build_map(display_target_df)
+        st.markdown(map_legend_title, unsafe_allow_html=True)
+        m = build_map(display_target_df, home_address=current_location_addr)
         st_folium(m, width="100%", height=450)
 else:
     tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 訪問対象者のみ拡大マップ"])
@@ -556,12 +582,12 @@ else:
             key="table_editor_tab"
         )
     with tab2:
-        st.markdown(map_legend_title)
-        m = build_map(display_target_df, target_only=False)
+        st.markdown(map_legend_title, unsafe_allow_html=True)
+        m = build_map(display_target_df, target_only=False, home_address=current_location_addr)
         st_folium(m, width="100%", height=450)
     with tab3:
-        st.markdown(map_legend_title)
-        m_target = build_map(display_target_df, target_only=True)
+        st.markdown(map_legend_title, unsafe_allow_html=True)
+        m_target = build_map(display_target_df, target_only=True, home_address=current_location_addr)
         st_folium(m_target, width="100%", height=450)
 
 # --- テーブル編集時のセッション更新処理 ---
