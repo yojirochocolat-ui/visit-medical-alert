@@ -131,7 +131,9 @@ def generate_50_kagawa_patients():
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
-        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}XX"
+        
+        # 修正: 下2桁を「XX」にした11桁の電話番号形式（例: 090-1234-56XX）
+        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99):02d}XX"
         
         device = random.choices(device_options, weights=device_weights)[0]
         battery = "ー" if device == "なし" else random.choice(["○", "ー", "？"])
@@ -521,7 +523,6 @@ def create_pdf_report(df_alert_patients, created_time):
 header_col, style_col = st.columns([1, 1])
 
 with header_col:
-    # 修正: (該当患者: X / 全 Y 名) の不要な表示を削除
     st.subheader("2. 患者照合結果 & マップ可視化")
 
 with style_col:
