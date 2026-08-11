@@ -1,16 +1,14 @@
 import math
 import os
 import re
-
-import pandas as pd
-import requests
-
 import smtplib
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime, timedelta, timezone
+
 from bs4 import BeautifulSoup
 import folium
+import pandas as pd
 from reportlab.lib import colors
 # PDF生成用ライブラリ
 from reportlab.lib.pagesizes import A4
@@ -18,6 +16,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+import requests
 import streamlit as st
 from streamlit_folium import st_folium
 
@@ -232,6 +231,8 @@ def fetch_outage_info():
 
 @st.cache_data
 def generate_50_kagawa_patients():
+  import random
+
   last_names = [
       "佐藤",
       "鈴木",
@@ -338,7 +339,7 @@ sender_password = st.sidebar.text_input(
     help="Gmailの場合はアプリパスワード(16桁)",
 )
 
-# 返信先（Reply-To）の設定欄を追加
+# 返信先（Reply-To）の設定欄
 reply_to_email = st.sidebar.text_input(
     "✉️ 返信先メールアドレス (任意)",
     value=default_smtp.get("reply_to", sender_email),
@@ -499,7 +500,7 @@ if not df_visit_needed.empty:
   df_route = calculate_optimal_route(doc_lat, doc_lon, df_visit_needed)
 
 # ---------------------------------------------------------
-# メトリクス表示
+# メトリクス表示（修正完了部分）
 # ---------------------------------------------------------
 m1, m2, m3, m4 = st.columns(4)
 with m1:
@@ -525,9 +526,10 @@ with m3:
   )
 with m4:
   total_km = df_route["distance_from_prev_km"].sum() if not df_route.empty else 0
+  val_str = f"{round(total_km, 1)} km"
   st.markdown(
-      f'<div class="metric-card"><div class="metric-value">{round(total_km,'
-      ' 1)} km</div><div class="metric-label">🗺️ 巡回ルート長</div></div>',
+      f'<div class="metric-card"><div class="metric-value">{val_str}</div><div'
+      ' class="metric-label">🗺️ 巡回ルート長</div></div>',
       unsafe_allow_html=True,
   )
 
@@ -592,6 +594,8 @@ if not df_route.empty:
         f" `{round(df_route['distance_from_prev_km'].sum(), 1)} km`"
     )
 
+    import urllib.parse
+
     waypoints = "|".join(
         [urllib.parse.quote(r["住所"]) for _, r in df_route.iterrows()]
     )
@@ -649,7 +653,6 @@ with col_m_btn:
 
 if send_trigger:
   if not df_route.empty:
-    # メール本文の自動構築
     subject = (
         f"【緊急アラート】停電発生による訪問対応依頼（対象 {len(df_route)} 名）"
     )
@@ -683,7 +686,6 @@ if send_trigger:
     body += f"※現場からの状況報告やお問い合わせは、本メールに直接返信（{effective_reply_to} 宛）してください。\n"
     body += "※本メールは停電アラートシステムより自動送信されています。"
 
-    # メール送信の実行（Reply-Toを渡す）
     with st.spinner("メール送信中..."):
       success, msg = send_email_alert(
           target_email, effective_reply_to, subject, body, smtp_config
