@@ -161,7 +161,7 @@ if st.session_state.patients_data is None:
 # 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
-mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
+mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
 
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
@@ -217,8 +217,8 @@ st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_
 outage_data = []
 created_time_str = ""
 
-if mode == "🧪 仮想シミュレーションモード":
-    st.subheader("1. 🧪 停電エリア・シミュレーター")
+if mode == "仮想シミュレーションモード":
+    st.subheader("1. 停電エリア・シミュレーター")
     
     col_input, col_btn = st.columns([3, 1])
     with col_input:
@@ -321,7 +321,7 @@ df_result = df_result.sort_values(
 # 全停電アラート対象者（⚠️）
 df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 
-# ★ 訪問対象者（安否確認済（安全）を除外）
+# 訪問対象者（安否確認済（安全）を除外）
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
@@ -329,7 +329,6 @@ df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否�
 # ---------------------------------------------------------
 def build_map(df, target_only=False):
     if target_only:
-        # ★ 停電対象拡大マップでは「安否確認済（安全）」を除外した訪問対象のみ表示
         display_df = df[(df["停電リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
     else:
         display_df = df
@@ -347,7 +346,6 @@ def build_map(df, target_only=False):
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
-        # アイコン・色の分岐
         if row["対応ステータス"] == "安否確認済（安全）":
             color = "gray"
             icon_type = "check-circle"
@@ -458,16 +456,13 @@ with style_col:
 st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
 
 if len(df_alert_all) > 0:
-    # 集計処理
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
     confirmed_cnt = len(df_alert_all[df_alert_all["対応ステータス"] == "安否確認済（安全）"])
     
-    # ★ アラートの表示変更（「安否確認済み：＊名」を追加）
     st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
     
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
-        # ★ PDFには「安否確認済」を除外した訪問対象のみ出力
         pdf_data = create_pdf_report(df_visit_target, created_time_str)
         st.download_button(
             label=f"📄 訪問対象者リスト（PDF: {len(df_visit_target)}名）をDL",
@@ -489,19 +484,18 @@ if len(df_alert_all) > 0:
 else:
     st.success("現在、停電エリアに該当する患者はいません。")
 
-# --- 未対応フィルター & アクション機能 ---
+# --- 絞り込みチェックボックス ---
 filter_col1, _ = st.columns([2, 3])
 with filter_col1:
     only_unhandled = st.checkbox("🔍 未対応の患者のみに絞り込む", value=False)
 
+# チェックの有無によって表とマップの両方のデータ源を切り替える
 if only_unhandled:
     display_target_df = df_result[df_result["対応ステータス"] == "未対応"]
 else:
     display_target_df = df_result.copy()
 
 display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
-
-st.info("💡 **テーブルのセル（対応ステータス・停電リスク）を直接クリックしてプルダウン変更が可能です。**")
 
 # データエディタ設定
 column_config = {
@@ -525,10 +519,13 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 
+# タイトル表示用のHTML文字列（「患者リスト」タイトルの右に小文字補足を配置）
+list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
+
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
-        st.markdown("#### 📋 患者リスト (表内で直接編集可)")
+        st.markdown(list_title_html, unsafe_allow_html=True)
         edited_df = st.data_editor(
             display_target_df[display_cols],
             column_config=column_config,
@@ -539,11 +536,13 @@ if layout_option == "左右並べ（PC・大画面向け）":
         )
     with col2:
         st.markdown("#### 🗺️ 訪問エリアマップ (赤:未訪問停電 / 灰:安否済 / 緑:正常)")
+        # 絞り込まれた display_target_df を渡すことでマップ側も「未対応」のみに連動
         m = build_map(display_target_df)
         st_folium(m, width="100%", height=450)
 else:
-    tab1, tab2, tab3 = st.tabs(["📋 リスト表示(編集可)", "🗺️ マップ表示(全体)", "⚠️ 訪問対象者のみ拡大マップ"])
+    tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 訪問対象者のみ拡大マップ"])
     with tab1:
+        st.markdown(list_title_html, unsafe_allow_html=True)
         edited_df = st.data_editor(
             display_target_df[display_cols],
             column_config=column_config,
