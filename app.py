@@ -23,115 +23,10 @@ from reportlab.lib import colors
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-st.set_page_config(page_title="停電アラート", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="停電アラート", layout="wide")
 
-# ---------------------------------------------------------
-# カスタムCSS（デザイン洗練・スタイル定義）
-# ---------------------------------------------------------
-custom_css = """
-<style>
-    /* 全体フォント・背景調整 */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
-    }
-    
-    /* メインタイトルの洗練 */
-    .main-header {
-        font-size: 2.0rem;
-        font-weight: 700;
-        color: #0F172A;
-        letter-spacing: -0.02em;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 0.95rem;
-        color: #64748B;
-        margin-bottom: 1.5rem;
-    }
-    
-    /* カード風スタイリング */
-    .metric-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 1.25rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        text-align: center;
-    }
-    .metric-value {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #0F172A;
-    }
-    .metric-label {
-        font-size: 0.85rem;
-        color: #64748B;
-        margin-top: 0.2rem;
-    }
-    .metric-danger {
-        color: #DC2626;
-    }
-    
-    /* トリアージバッジスタイル */
-    .badge-lv4 {
-        background-color: #FEE2E2;
-        color: #991B1B;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-    .badge-lv3 {
-        background-color: #FEF3C7;
-        color: #92400E;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-    .badge-lv2 {
-        background-color: #E0F2FE;
-        color: #075985;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 600;
-        font-size: 0.85rem;
-    }
-    .badge-lv1 {
-        background-color: #F1F5F9;
-        color: #475569;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-weight: 500;
-        font-size: 0.85rem;
-    }
-    
-    /* セクション見出しデザイン */
-    .section-title {
-        font-size: 1.15rem;
-        font-weight: 600;
-        color: #1E293B;
-        margin-top: 1.5rem;
-        margin-bottom: 0.8rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-
-    /* サイドバーのカスタマイズ */
-    [data-testid="stSidebar"] {
-        background-color: #F8FAFC;
-        border-right: 1px solid #E2E8F0;
-    }
-</style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
-
-# ヘッダー領域
-st.markdown('<div class="main-header">⚡ 停電アラート</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">リアルタイムの停電情報と患者リストを照合し、優先度自動トリアージとナビ連携で初動対応を支援します。</div>', unsafe_allow_html=True)
+st.title("⚡ 停電アラート")
+st.caption("リアルタイムの停電情報と患者リストを照合し、優先度自動トリアージとナビ連携で初動対応を支援します。")
 
 # ---------------------------------------------------------
 # セッション状態の初期化
@@ -141,7 +36,7 @@ if "sim_areas" not in st.session_state:
 if "sim_created_time" not in st.session_state:
     st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 if "patient_status" not in st.session_state:
-    st.session_state.patient_status = {}
+    st.session_state.patient_status = {} # {patient_id: {"status": "未対応", "updated_at": ""}}
 if "patients_data" not in st.session_state:
     st.session_state.patients_data = None
 
@@ -263,24 +158,24 @@ if st.session_state.patients_data is None:
     st.session_state.patients_data = initial_df
 
 # ---------------------------------------------------------
-# 3. サイドバー設定 & データ読み込み
+# 3. サイドバー設定 & データ読み込み（IDキー上書き・追加ロジック）
 # ---------------------------------------------------------
-st.sidebar.markdown("### ⚙️ 動作モード")
-mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーション", "🌐 リアルタイムWeb取得"], label_visibility="collapsed")
+st.sidebar.header("⚙️ 動作設定")
+mode = st.sidebar.radio("情報取得モード", ["🧪 仮想シミュレーションモード", "🌐 リアルタイムWeb取得モード"])
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📂 データ統合管理")
+st.sidebar.header("📂 データ追加・更新設定")
 
 template_bytes, template_filename = load_template_file()
 st.sidebar.download_button(
-    label="📥 登録フォーマット(Excel)DL",
+    label="📥 患者リスト登録フォーマット(Excel)をDL",
     data=template_bytes,
     file_name=template_filename,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     use_container_width=True
 )
 
-uploaded_file = st.sidebar.file_uploader("患者リスト(Excel/CSV)を統合取り込み", type=["xlsx", "csv"])
+uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を取り込み", type=["xlsx", "csv"])
 
 if uploaded_file is not None:
     try:
@@ -295,7 +190,7 @@ if uploaded_file is not None:
                 new_df[col] = "-"
         new_df = new_df.fillna("-")
         
-        with st.spinner("位置情報を解析・統合中..."):
+        with st.spinner("位置情報を計算してデータを統合中..."):
             lats, lons = [], []
             for _, r in new_df.iterrows():
                 lat, lon = geocode_address(r["住所"])
@@ -304,16 +199,19 @@ if uploaded_file is not None:
             new_df["lat"] = lats
             new_df["lon"] = lons
 
+            # IDをキーにした上書き・追加（結合）処理
             current_df = st.session_state.patients_data.set_index("ID")
             new_df = new_df.set_index("ID")
+            
+            # 既存のIDは新データで上書き、新しいIDは末尾に追加
             updated_df = new_df.combine_first(current_df).reset_index()
             st.session_state.patients_data = updated_df
             
-        st.sidebar.success("データ統合完了（重複IDは更新されました）")
+        st.sidebar.success("データを取り込みました！（ID重複分は上書き更新）")
     except Exception as e:
-        st.sidebar.error(f"ファイル取込エラー: {e}")
+        st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
 
-st.sidebar.caption(f"登録患者数: **{len(st.session_state.patients_data)} 名**")
+st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
 
 # ---------------------------------------------------------
 # 4. 停電データの照合準備 & 優先度(トリアージ)ソート
@@ -321,37 +219,39 @@ st.sidebar.caption(f"登録患者数: **{len(st.session_state.patients_data)} �
 outage_data = []
 created_time_str = ""
 
-if mode == "🧪 仮想シミュレーション":
-    st.markdown('<div class="section-title">1. 🧪 停電シミュレーター</div>', unsafe_allow_html=True)
+if mode == "🧪 仮想シミュレーションモード":
+    st.subheader("1. 🧪 停電エリア・シミュレーター")
     
     col_input, col_btn = st.columns([3, 1])
     with col_input:
         sim_input = st.text_input(
-            "想定停電地域（市町村・町名）", 
-            value="高松市番町, 宇多津町",
-            label_visibility="collapsed"
+            "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
+            value="高松市番町, 宇多津町"
         )
     with col_btn:
+        st.write(" ")
+        st.write(" ")
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.success("指定地域で照合を更新しました")
+            st.success("シミュレーションを実行・作成日時を更新しました！")
 
     for area in st.session_state.sim_areas:
         outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
     
     created_time_str = st.session_state.sim_created_time
+    st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}**")
 
 else:
-    st.markdown('<div class="section-title">1. 🌐 Webリアルタイム停電情報</div>', unsafe_allow_html=True)
+    st.subheader("1. 🌐 Webリアルタイム停電情報")
     outage_data = fetch_outage_info()
     created_time_str = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
     
     if outage_data:
         outage_df_display = [{"都道府県": item["prefecture"], "市区町村": item["city"], "対象町名": item["raw_towns"]} for item in outage_data]
-        st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True, height=150)
+        st.dataframe(pd.DataFrame(outage_df_display), use_container_width=True)
     else:
-        st.info("現在Web上に該当する停電情報はありません。")
+        st.warning("現在、Webサイト上に該当する停電情報はありません。")
 
 def check_outage(address, outage_list):
     for item in outage_list:
@@ -364,10 +264,11 @@ def check_outage(address, outage_list):
     return False, "正常"
 
 def calc_triage_level(device, battery):
+    """緊急度・トリアージレベルを自動算出"""
     d = str(device)
     b = str(battery)
     if "人工呼吸器" in d:
-        return "Lv.4 (最優先)", 4
+        return "Lv.4 (極めて危険)", 4
     elif "人工透析" in d or "在宅酸素" in d:
         return "Lv.3 (高リスク)", 3
     elif d != "なし":
@@ -384,6 +285,7 @@ for idx, row in st.session_state.patients_data.iterrows():
     is_outage, area_info = check_outage(str(row["住所"]), outage_data)
     
     triage_label, triage_score = calc_triage_level(row.get("使用装置", "なし"), row.get("バッテリ", "ー"))
+    
     status_info = st.session_state.patient_status.get(p_id, {"status": "未対応", "updated_at": "-"})
     
     results.append({
@@ -415,25 +317,8 @@ df_result = df_result.sort_values(
     by=["risk_sort", "triage_score"], ascending=[True, False]
 ).drop(columns=["risk_sort"])
 
-df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
-lv4_cnt = len(df_alert_only[df_alert_only["トリアージ"].str.contains("Lv.4")])
-unhandled_cnt = len(df_alert_only[df_alert_only["対応ステータス"] == "未対応"])
-
 # ---------------------------------------------------------
-# メトリクスダッシュボード表示
-# ---------------------------------------------------------
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{len(st.session_state.patients_data)}</div><div class="metric-label">総登録患者数</div></div>', unsafe_allow_html=True)
-with m2:
-    st.markdown(f'<div class="metric-card"><div class="metric-value metric-danger">{len(alerts)}</div><div class="metric-label">⚠️ 停電対象患者</div></div>', unsafe_allow_html=True)
-with m3:
-    st.markdown(f'<div class="metric-card"><div class="metric-value metric-danger">{lv4_cnt}</div><div class="metric-label">🚨 最優先 (Lv.4)</div></div>', unsafe_allow_html=True)
-with m4:
-    st.markdown(f'<div class="metric-card"><div class="metric-value">{unhandled_cnt}</div><div class="metric-label">📋 未対応件数</div></div>', unsafe_allow_html=True)
-
-# ---------------------------------------------------------
-# 地図描画関数
+# 5. 地図描画関数 (電話発信・Googleマップナビリンク対応)
 # ---------------------------------------------------------
 def build_map(df, target_only=False):
     if target_only:
@@ -449,39 +334,38 @@ def build_map(df, target_only=False):
         center_lat, center_lon = 34.3000, 133.9500
         zoom_level = 11
         
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level, tiles="CartoDB positron")
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
-        color = "red" if is_alert else "gray"
+        color = "red" if is_alert else "green"
         icon_type = "exclamation-triangle" if is_alert else "user"
         
+        # Google Map ナビ用 URL 生成
         nav_url = f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote(str(row['住所']))}"
         tel_clean = str(row['連絡先']).replace("-", "")
         
         popup_html = f"""
-        <div style='font-family:sans-serif; font-size:12px; width:220px; line-height:1.6;'>
-            <div style='font-weight:700; color:#DC2626; font-size:13px;'>【{row['トリアージ']}】</div>
+        <div style='font-size:12px; width:220px; line-height:1.5;'>
+            <b style='color:red;'>【{row['トリアージ']}】</b><br>
             <b>氏名:</b> {row['患者名']}<br>
-            <b>ステータス:</b> {row['対応ステータス']}<br>
-            <b>使用装置:</b> {row['使用装置']} (バッテリ:{row['バッテリ']})<br>
-            <b>住所:</b> {row['住所']}<br>
-            <div style='margin-top:8px; display:flex; gap:5px;'>
-                <a href='tel:{tel_clean}' target='_blank' style='background:#2563EB; color:white; padding:4px 8px; text-decoration:none; border-radius:4px; font-size:11px; font-weight:600;'>📞 TEL発信</a>
-                <a href='{nav_url}' target='_blank' style='background:#059669; color:white; padding:4px 8px; text-decoration:none; border-radius:4px; font-size:11px; font-weight:600;'>🗺️ ナビ起動</a>
-            </div>
+            <b>状態:</b> {row['対応ステータス']}<br>
+            <b>装置:</b> {row['使用装置']} (バッテリ:{row['バッテリ']})<br>
+            <b>住所:</b> {row['住所']}<br><hr style='margin:5px 0;'>
+            <a href='tel:{tel_clean}' target='_blank' style='background:#0275d8; color:white; padding:3px 8px; text-decoration:none; border-radius:3px; font-size:11px;'>📞 TEL発信</a>
+            <a href='{nav_url}' target='_blank' style='background:#5cb85c; color:white; padding:3px 8px; text-decoration:none; border-radius:3px; font-size:11px; margin-left:5px;'>🗺️ ナビ起動</a>
         </div>
         """
         folium.Marker(
             location=[row["lat"], row["lon"]],
             popup=folium.Popup(popup_html, max_width=240),
-            tooltip=f"{row['トリアージ']} | {row['患者名']} 様",
+            tooltip=f"{row['トリアージ']} | {row['患者名']} 様 ({row['対応ステータス']})",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         ).add_to(m)
     return m
 
 # ---------------------------------------------------------
-# PDFレポート生成
+# 6. レポート生成処理 (PDF)
 # ---------------------------------------------------------
 def register_japanese_font():
     font_name = "IPAGothic"
@@ -528,11 +412,11 @@ def create_pdf_report(df_alert_patients, created_time):
 
     t = Table(table_data, colWidths=[25, 65, 45, 45, 65, 30, 45, 65, 145])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0F172A')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F8FAFC')])
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
     ]))
     story.append(t)
     doc.build(story)
@@ -540,16 +424,35 @@ def create_pdf_report(df_alert_patients, created_time):
     return buffer
 
 # ---------------------------------------------------------
-# 5. 照合結果 & マップ可視化
+# 7. 画面表示エリア
 # ---------------------------------------------------------
-st.markdown('<div class="section-title">2. 📍 状況可視化 & フォローリスト</div>', unsafe_allow_html=True)
+header_col, style_col = st.columns([1, 1])
+
+with header_col:
+    st.subheader(f"2. 患者照合結果 & マップ可視化 (該当患者: {len(alerts)} / 全 {len(st.session_state.patients_data)} 名)")
+
+with style_col:
+    layout_option = st.radio(
+        "表示スタイル", 
+        ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
+        horizontal=False,
+        label_visibility="collapsed"
+    )
+
+st.caption(f"🕒 **リスト作成日時: {created_time_str} 作成**")
+
+df_alert_only = df_result[df_result["停電リスク"].str.contains("⚠️")]
 
 if len(alerts) > 0:
+    # トリアージごとのカウント計算
+    lv4_cnt = len(df_alert_only[df_alert_only["トリアージ"].str.contains("Lv.4")])
+    st.error(f"🚨 停電エリア内に該当する患者が **{len(alerts)} 名** ピックアップされました！（うち【最優先 Lv.4】: **{lv4_cnt} 名**）")
+    
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         pdf_data = create_pdf_report(df_alert_only, created_time_str)
         st.download_button(
-            label="📄 停電対象者リスト（PDF）を出力",
+            label="📄 1. 停電対象者リスト（PDF）をDL",
             data=pdf_data,
             file_name="停電リスク対象患者リスト.pdf",
             mime="application/pdf",
@@ -559,74 +462,104 @@ if len(alerts) > 0:
         m_target_dl = build_map(df_result, target_only=True)
         html_data = m_target_dl._repr_html_()
         st.download_button(
-            label="🗺️ 訪問対象マップ（HTML）を出力",
+            label="🗺️ 2. 停電対象のみ拡大訪問マップ（HTML）をDL",
             data=html_data,
             file_name="停電対象者_拡大訪問マップ.html",
             mime="text/html",
             use_container_width=True
         )
+else:
+    st.success("現在、停電エリアに該当する患者はいません。")
 
-# 絞り込みフィルター
-only_unhandled = st.checkbox("🔍 未対応の患者のみを表示", value=False)
-display_target_df = df_result[df_result["対応ステータス"] == "未対応"] if only_unhandled else df_result
+# --- 未対応フィルター & アクション機能 ---
+filter_col1, filter_col2 = st.columns([2, 3])
+with filter_col1:
+    only_unhandled = st.checkbox("🔍 未対応の患者のみに絞り込む", value=False)
+
+if only_unhandled:
+    display_target_df = df_result[df_result["対応ステータス"] == "未対応"]
+else:
+    display_target_df = df_result
 
 def highlight_row(val):
     if "Lv.4" in str(val):
-        return "background-color: #FEE2E2; font-weight: bold; color: #991B1B;"
+        return "background-color: #ffcccc; font-weight: bold; color: #990000;"
     elif "Lv.3" in str(val):
-        return "background-color: #FEF3C7; font-weight: bold; color: #92400E;"
+        return "background-color: #fff0bb; font-weight: bold; color: #8a6d3b;"
     return ""
 
 display_cols = ["ID", "対応ステータス", "トリアージ", "停電リスク", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 
-tab_list, tab_map = st.tabs(["📋 リスト一覧", "🗺️ マップ可視化"])
-with tab_list:
-    st.dataframe(
-        display_target_df[display_cols].style.map(highlight_row, subset=["トリアージ"]),
-        use_container_width=True, height=400
-    )
-with tab_map:
-    m = build_map(display_target_df)
-    st_folium(m, width="100%", height=450)
+if layout_option == "左右並べ（PC・大画面向け）":
+    col1, col2 = st.columns([6, 5])
+    with col1:
+        st.markdown("#### 📋 患者リスト (優先度順)")
+        st.dataframe(display_target_df[display_cols].style.map(highlight_row, subset=["トリアージ"]), use_container_width=True, height=450)
+    with col2:
+        st.markdown("#### 🗺️ 訪問エリアマップ (赤:停電 / 緑:正常)")
+        m = build_map(display_target_df)
+        st_folium(m, width="100%", height=450)
+else:
+    tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 停電対象者のみ拡大マップ"])
+    with tab1:
+        st.dataframe(display_target_df[display_cols].style.map(highlight_row, subset=["トリアージ"]), use_container_width=True, height=450)
+    with tab2:
+        m = build_map(display_target_df, target_only=False)
+        st_folium(m, width="100%", height=450)
+    with tab3:
+        m_target = build_map(display_target_df, target_only=True)
+        st_folium(m_target, width="100%", height=450)
 
 # ---------------------------------------------------------
-# 6. 対応ステータス更新パネル
+# 8. 現場・初動対応ステータス更新パネル
 # ---------------------------------------------------------
-st.markdown('<div class="section-title">3. 📝 現場ステータス更新</div>', unsafe_allow_html=True)
+st.markdown("---")
+st.subheader("3. 📝 現場対応状況の更新 (ステータス管理)")
 
 if len(df_alert_only) > 0:
-    col_p, col_s, col_b = st.columns([3, 2, 1])
-    with col_p:
-        target_p = st.selectbox(
-            "対象患者を選択", 
-            options=df_alert_only["ID"] + " : " + df_alert_only["患者名"] + " (" + df_alert_only["トリアージ"] + ")"
-        )
-        selected_p_id = target_p.split(" : ")[0]
-    with col_s:
-        new_status = st.selectbox("ステータス", ["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], key=f"select_{selected_p_id}")
-    with col_b:
+    target_p = st.selectbox("対応を更新する患者を選択してください", options=df_alert_only["ID"] + " : " + df_alert_only["患者名"] + " (" + df_alert_only["トリアージ"] + ")")
+    selected_p_id = target_p.split(" : ")[0]
+    
+    col_s1, col_s2, col_s3 = st.columns([2, 2, 1])
+    with col_s1:
+        new_status = st.selectbox("現在のステータス", ["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], key=f"select_{selected_p_id}")
+    with col_s2:
         st.write(" ")
         st.write(" ")
-        if st.button("💾 更新", use_container_width=True):
+        if st.button("💾 対応ステータスを更新", use_container_width=True):
             st.session_state.patient_status[selected_p_id] = {
                 "status": new_status,
                 "updated_at": datetime.now(JST).strftime("%H:%M")
             }
-            st.success(f"更新完了")
+            st.success(f"ID: {selected_p_id} のステータスを【{new_status}】に更新しました！")
             st.rerun()
 else:
-    st.info("対応更新が必要な停電対象患者はいません。")
+    st.info("現在、対応ステータスを更新する停電対象患者はいません。")
 
 # ---------------------------------------------------------
-# 7. アナウンス通知デモ
+# 9. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
-st.markdown('<div class="section-title">4. 📧 一括アラート通知（デモ）</div>', unsafe_allow_html=True)
-col_mail, col_send = st.columns([3, 1])
-with col_mail:
-    target_email = st.text_input("送信先メールアドレス", value="doctor@example.com", label_visibility="collapsed")
-with col_send:
-    if st.button("📧 アラート一括送信", use_container_width=True):
-        if len(alerts) > 0:
-            st.success(f"✅ {len(alerts)} 件の通知メッセージを送信処理しました。")
-        else:
-            st.info("送信対象の患者はいません。")
+st.markdown("---")
+st.subheader("4. 初動用アナウンスメール送信（デモ）")
+target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
+
+if st.button("📧 対象患者のアラート通知を一括送信"):
+    if len(alerts) > 0:
+        st.write("**【医師へ送信される自動アナウンスプレビュー】**")
+        for idx, row in df_alert_only.iterrows():
+            st.code(f"""
+件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様 / {row['トリアージ']}）
+宛先: {target_email} ({row['担当医']}御中)
+
+{row['担当医']} 先生
+
+{row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
+・トリアージ緊急度: {row['トリアージ']}
+・使用装置: {row['使用装置']} (バッテリ: {row['バッテリ']})
+・作成日時: {created_time_str}
+
+有事の初動対応および安否・医療機器の動作確認をお願いいたします。
+            """, language="text")
+        st.success(f"✅ {len(alerts)} 件の通知メッセージを作成・送信処理（デモ）しました。")
+    else:
+        st.info("停電対象患者がいないため通知は送信されません。")
