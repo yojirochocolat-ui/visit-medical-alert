@@ -24,7 +24,7 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------
-# カスタムCSS（Light/Darkモード両対応デザイン）
+# カスタムCSS（視認性向上・Dark/Lightモード両対応）
 # ---------------------------------------------------------
 custom_css = """
 <style>
@@ -41,14 +41,13 @@ custom_css = """
     }
     .sub-header {
         font-size: 0.95rem;
-        opacity: 0.8;
+        opacity: 0.85;
         margin-bottom: 1.5rem;
     }
     
-    /* テーマ（Light/Dark）に対応するカードデザイン */
     .metric-card {
-        background-color: var(--background-secondary-color, rgba(128, 128, 128, 0.08));
-        border: 1px solid var(--border-color, rgba(128, 128, 128, 0.2));
+        background-color: var(--background-secondary-color, rgba(128, 128, 128, 0.12));
+        border: 1px solid var(--border-color, rgba(128, 128, 128, 0.25));
         border-radius: 12px;
         padding: 1.25rem;
         text-align: center;
@@ -60,7 +59,7 @@ custom_css = """
     }
     .metric-label {
         font-size: 0.85rem;
-        opacity: 0.8;
+        opacity: 0.85;
         margin-top: 0.2rem;
     }
     .metric-danger {
@@ -75,6 +74,14 @@ custom_css = """
         display: flex;
         align-items: center;
         gap: 0.5rem;
+    }
+    
+    .route-item {
+        padding: 8px 12px;
+        margin-bottom: 6px;
+        border-radius: 6px;
+        background-color: var(--background-secondary-color, rgba(128, 128, 128, 0.08));
+        border-left: 4px solid #2563EB;
     }
 </style>
 """
@@ -451,7 +458,7 @@ df_visit_needed = df_result[
 
 
 # ---------------------------------------------------------
-# 最適訪問ルート計算ロジック
+# 全患者（1〜9人目全件）の最適訪問ルート計算ロジック
 # ---------------------------------------------------------
 def calculate_optimal_route(start_lat, start_lon, target_df):
   unvisited = target_df.copy().to_dict("records")
@@ -514,7 +521,7 @@ with m4:
   )
 
 # ---------------------------------------------------------
-# 2. 📋 登録患者・停電照合リスト（常時一覧表示）
+# 2. 📋 登録患者・停電照合リスト（全件表示）
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">2. 📋 登録患者・停電照合リスト（全件）</div>',
@@ -537,15 +544,11 @@ display_cols = [
 st.dataframe(
     df_result[display_cols],
     use_container_width=True,
-    height=300,
-    column_config={
-        "停電リスク": st.column_config.TextColumn("停電リスク"),
-        "トリアージ": st.column_config.TextColumn("トリアージ"),
-    },
+    height=280,
 )
 
 # ---------------------------------------------------------
-# 3. 🗺️ 巡回ルート提案 & マップ（ボタンで表示制御）
+# 3. 🗺️ 巡回ルート提案 & マップ（見やすい標準マップ・全件表示）
 # ---------------------------------------------------------
 st.markdown(
     '<div class="section-title">3. 🗺️ 巡回ルート提案 & マップ</div>',
@@ -559,9 +562,12 @@ if st.session_state.show_route:
   if not df_route.empty:
     col_map, col_info = st.columns([3, 2])
     with col_map:
+      # よりクッキリと見やすい標準マップ (OpenStreetMap) を採用
       m = folium.Map(
-          location=[doc_lat, doc_lon], zoom_start=12, tiles="CartoDB positron"
+          location=[doc_lat, doc_lon], zoom_start=11, tiles="OpenStreetMap"
       )
+
+      # 出発拠点マーカー
       folium.Marker(
           location=[doc_lat, doc_lon],
           popup=(
@@ -572,35 +578,50 @@ if st.session_state.show_route:
       ).add_to(m)
 
       route_points = [[doc_lat, doc_lon]]
+
+      # 1〜N人目まですべてのマーカーを地図に追加
       for _, row in df_route.iterrows():
-        order = row["visit_order"]
+        order = int(row["visit_order"])
         route_points.append([row["lat"], row["lon"]])
+
+        # 全ての数字が見やすいDivIcon（赤丸・白文字数字）
+        icon_html = f"""
+                <div style="
+                    background-color: #DC2626;
+                    color: #FFFFFF;
+                    border-radius: 50%;
+                    width: 26px;
+                    height: 26px;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    font-weight: bold;
+                    font-size: 13px;
+                    border: 2px solid #FFFFFF;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+                ">{order}</div>
+                """
+
         folium.Marker(
             location=[row["lat"], row["lon"]],
             popup=(
-                f"<b>#{order} {row['患者名']}</b><br>{row['トリアージ']}<br>{row['住所']}"
+                f"<b>#{order} {row['患者名']} 様</b><br>{row['トリアージ']}<br>{row['住所']}"
             ),
             tooltip=f"#{order} {row['患者名']} 様",
             icon=folium.DivIcon(
-                html=(
-                    f'<div style="background-color:#DC2626; color:white;'
-                    " border-radius:50%; width:28px; height:28px;"
-                    " display:flex; justify-content:center;"
-                    " align-items:center; font-weight:bold; font-size:13px;"
-                    " border:2px solid white; box-shadow:0 2px 4px"
-                    f' rgba(0,0,0,0.3);">{order}</div>'
-                )
+                html=icon_html, icon_size=(26, 26), icon_anchor=(13, 13)
             ),
         ).add_to(m)
 
+      # 全区間を結ぶ青いルートライン（視認性を向上）
       folium.PolyLine(
           route_points,
           color="#2563EB",
-          weight=4,
-          opacity=0.8,
-          dash_array="5, 10",
+          weight=5,
+          opacity=0.85,
       ).add_to(m)
-      st_folium(m, width="100%", height=400)
+
+      st_folium(m, width="100%", height=450)
 
     with col_info:
       st.markdown(f"**📍 出発地:** `{st.session_state.doctor_address}`")
@@ -621,19 +642,25 @@ if st.session_state.show_route:
 
       st.markdown(
           f"""
-          <a href="{gmap_multi_url}" target="_blank" style="display:inline-block; background-color:#2563EB; color:white; padding:8px 14px; border-radius:6px; text-decoration:none; font-weight:600; font-size:13px; margin-bottom:10px;">
+          <a href="{gmap_multi_url}" target="_blank" style="display:inline-block; background-color:#2563EB; color:white; padding:8px 14px; border-radius:6px; text-decoration:none; font-weight:600; font-size:13px; margin-bottom:12px;">
               📱 Googleマップで全巡回ルートを開く
           </a>
           """,
           unsafe_allow_html=True,
       )
 
+      # 1〜N人までのリストをスクロール可能エリアに確実に表示
+      st.markdown("**【訪問順序リスト】**")
       for _, r in df_route.iterrows():
         st.markdown(
-            f"**#{r['visit_order']} {r['患者名']}** ({r['トリアージ']})  \n📍"
-            f" {r['住所']} (前地点より `{r['distance_from_prev_km']}km`)"
+            f"""
+            <div class="route-item">
+                <b>#{r['visit_order']} {r['患者名']} 様</b> ({r['トリアージ']})<br>
+                📍 {r['住所']} <span style="opacity:0.8; font-size:0.85rem;">(前地点より {r['distance_from_prev_km']}km)</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        st.divider()
   else:
     st.info("現在、訪問が必要な未対応の停電対象患者はいません。")
 
