@@ -37,9 +37,11 @@ if "sim_areas" not in st.session_state:
 if "sim_created_time" not in st.session_state:
     st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 if "patient_status" not in st.session_state:
-    st.session_state.patient_status = {} # {patient_id: {"status": "未対応", "updated_at": ""}}
+    st.session_state.patient_status = {}
 if "patients_data" not in st.session_state:
     st.session_state.patients_data = None
+if "filter_unhandled" not in st.session_state:
+    st.session_state.filter_unhandled = False
 
 # ---------------------------------------------------------
 # 住所から緯度・経度を取得する関数 (ジオコーディング)
@@ -94,7 +96,6 @@ def generate_50_kagawa_patients():
     first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "大輔", "美咲", "直樹", "裕子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
-    # 高松市内全域の多様な50エリア（各町名・丁目あたり1〜2名に分散）
     kagawa_spots = [
         "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
         "香川県高松市昭和町1丁目", "香川県高松市茜町", "香川県高松市扇町1丁目", "香川県高松市紫雲町",
@@ -117,7 +118,6 @@ def generate_50_kagawa_patients():
     patients = []
     random.seed(42)
     
-    # 50エリアをランダム順にシャッフルして割り当て
     spots_shuffled = kagawa_spots.copy()
     random.shuffle(spots_shuffled)
     
@@ -127,7 +127,7 @@ def generate_50_kagawa_patients():
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
-        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}0"
+        tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99)}XX"
         
         device = random.choices(device_options, weights=device_weights)[0]
         battery = "ー" if device == "なし" else random.choice(["○", "ー", "？"])
@@ -153,7 +153,7 @@ def load_template_file():
     else:
         sample_data = [{
             "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市宮脇町1丁目1-1",
-            "担当医": "佐藤医師", "連絡先": "090-1234-5678", "使用装置": "人工呼吸器",
+            "担当医": "佐藤医師", "連絡先": "090-1234-56XX", "使用装置": "人工呼吸器",
             "バッテリ": "○", "備考": "要緊急確認"
         }]
         output = io.BytesIO()
@@ -162,7 +162,7 @@ def load_template_file():
         output.seek(0)
         return output.getvalue(), "患者リスト_登録フォーマット.xlsx"
 
-# 初期データのロード＆座標ずらし(ジッター)処理
+# 初期データのロード
 if st.session_state.patients_data is None:
     initial_df = pd.DataFrame(generate_50_kagawa_patients())
     lats, lons = [], []
@@ -270,6 +270,7 @@ if mode == "仮想シミュレーションモード":
         if st.button("🔄 リセット", use_container_width=True):
             st.session_state.sim_areas = []
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.session_state.filter_unhandled = False  # チェックボックスのチェックも解除
             st.rerun()
 
     for area in st.session_state.sim_areas:
@@ -370,7 +371,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数（MarkerCluster対応）
+# 5. 地図描画関数（MarkerCluster & 全ピン包含フィット対応）
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -381,14 +382,15 @@ def build_map(df, target_only=False, home_address=""):
     if not display_df.empty:
         center_lat = display_df["lat"].mean()
         center_lon = display_df["lon"].mean()
-        zoom_level = 13
     else:
         center_lat, center_lon = 34.3400, 134.0450
-        zoom_level = 13
         
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=13)
     
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
+
+    # ピンの緯度経度を記録して境界計算に利用
+    bounds_points = []
 
     if home_address and home_address.strip() != "":
         h_lat, h_lon = geocode_address(home_address)
@@ -404,6 +406,7 @@ def build_map(df, target_only=False, home_address=""):
             tooltip=f"📍 現住所 ({home_address})",
             icon=folium.Icon(color="blue", icon="home", prefix="fa")
         ).add_to(m)
+        bounds_points.append([h_lat, h_lon])
 
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
@@ -419,7 +422,7 @@ def build_map(df, target_only=False, home_address=""):
             icon_type = "user"
         
         nav_url = f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote(str(row['住所']))}"
-        tel_clean = str(row['連絡先']).replace("-", "")
+        tel_clean = str(row['連絡先']).replace("-", "").replace("X", "").replace("x", "")
         
         popup_html = f"""
         <div style='font-size:12px; width:220px; line-height:1.5;'>
@@ -438,6 +441,22 @@ def build_map(df, target_only=False, home_address=""):
             tooltip=f"{row['トリアージ']} | {row['患者名']} 様 ({row['対応ステータス']})",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         ).add_to(marker_cluster)
+        
+        bounds_points.append([row["lat"], row["lon"]])
+
+    # ピンが存在する場合、全ピンが収まる範囲を適正に境界設定 (fit_bounds)
+    if bounds_points:
+        min_lat = min(p[0] for p in bounds_points)
+        max_lat = max(p[0] for p in bounds_points)
+        min_lon = min(p[1] for p in bounds_points)
+        max_lon = max(p[1] for p in bounds_points)
+        
+        # 1点のみの場合や同一地点の場合はズームを一定値に保持
+        if min_lat == max_lat and min_lon == max_lon:
+            m.location = [min_lat, min_lon]
+            m.zoom_start = 14
+        else:
+            m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]], padding=(30, 30))
         
     return m
 
@@ -550,7 +569,7 @@ else:
 # --- 絞り込みチェックボックス ---
 filter_col1, _ = st.columns([3, 2])
 with filter_col1:
-    only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", value=False)
+    only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
 
 if only_unhandled:
     display_target_df = df_result[
