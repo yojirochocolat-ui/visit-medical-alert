@@ -94,21 +94,21 @@ def generate_50_kagawa_patients():
     first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "大輔", "美咲", "直樹", "裕子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
     
-    # 全20エリア（各エリア2〜3名ずつ均等配分されて合計50名になるリスト）
+    # 高松市内全域の多様な50エリア（各町名・丁目あたり1〜2名に分散）
     kagawa_spots = [
-        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市栗林町3丁目",
-        "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
-        "香川県高松市昭和町1丁目", "香川県高松市昭和町2丁目",
-        "香川県高松市茜町", 
-        "香川県高松市扇町1丁目", "香川県高松市扇町2丁目",
-        "香川県高松市紫雲町",
-        "香川県高松市中新町",
-        "香川県高松市藤塚町1丁目", "香川県高松市藤塚町2丁目",
-        "香川県高松市天神前",
-        "香川県高松市錦町1丁目", "香川県高松市錦町2丁目",
-        "香川県高松市番町1丁目", "香川県高松市番町2丁目", "香川県高松市番町3丁目", "香川県高松市番町4丁目",
-        "香川県高松市瓦町1丁目", "香川県高松市瓦町2丁目",
-        "香川県高松市塩上町1丁目", "香川県高松市観光通1丁目"
+        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
+        "香川県高松市昭和町1丁目", "香川県高松市茜町", "香川県高松市扇町1丁目", "香川県高松市紫雲町",
+        "香川県高松市中新町", "香川県高松市藤塚町1丁目", "香川県高松市天神前", "香川県高松市錦町1丁目",
+        "香川県高松市番町1丁目", "香川県高松市番町3丁目", "香川県高松市瓦町1丁目", "香川県高松市塩上町1丁目",
+        "香川県高松市観光通1丁目", "香川県高松市木太町", "香川県高松市伏石町", "香川県高松市太田上町",
+        "香川県高松市多肥上町", "香川県高松市多肥下町", "香川県高松市今里町1丁目", "香川県高松市松縄町",
+        "香川県高松市林町", "香川県高松市三条町", "香川県高松市一宮町", "香川県高松市香西本町",
+        "香川県高松市香西南町", "香川県高松市屋島西町", "香川県高松市屋島中町", "香川県高松市春日町",
+        "香川県高松市川島東町", "香川県高松市福岡町1丁目", "香川県高松市福岡町3丁目", "香川県高松市古馬場町",
+        "香川県高松市兵庫町", "香川県高松市片原町", "香川県高松市丸亀町", "香川県高松市南新町",
+        "香川県高松市田町", "香川県高松市花園町1丁目", "香川県高松市築地町", "香川県高松市塩江町安原上",
+        "香川県高松市国分寺町新居", "香川県高松市牟礼町牟礼", "香川県高松市庵治町", "香川県高松市香川町川東上",
+        "香川県高松市鬼無町佐藤", "香川県高松市檀紙町"
     ]
     
     device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
@@ -117,10 +117,13 @@ def generate_50_kagawa_patients():
     patients = []
     random.seed(42)
     
-    # 25エリアに順番に割り当てることで、1つのエリアあたりちょうど2名（50名÷25エリア＝各2名）に均等分散
+    # 50エリアをランダム順にシャッフルして割り当て
+    spots_shuffled = kagawa_spots.copy()
+    random.shuffle(spots_shuffled)
+    
     for i in range(1, 51):
         name = f"{random.choice(last_names)} {random.choice(first_names)}"
-        spot_addr = kagawa_spots[(i - 1) % len(kagawa_spots)] # 均等配分処理
+        spot_addr = spots_shuffled[i - 1] # 50名それぞれ別々のエリアを割り当て
         p_id = f"P{i:03d}"
         addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
@@ -166,7 +169,6 @@ if st.session_state.patients_data is None:
     random.seed(123)
     for _, r in initial_df.iterrows():
         base_lat, base_lon = geocode_address(r["住所"])
-        # ピン重複防止用の微小オフセット
         jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
         jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
         lats.append(jitter_lat)
@@ -253,7 +255,7 @@ if mode == "仮想シミュレーションモード":
         sim_input = st.text_input(
             "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
             value=",".join(st.session_state.sim_areas),
-            placeholder="例: 宮脇町, 昭和町, 栗林町1丁目"
+            placeholder="例: 宮脇町, 木太町, 栗林町1丁目"
         )
     with col_btn:
         st.write(" ")
@@ -372,17 +374,15 @@ def build_map(df, target_only=False, home_address=""):
     if not display_df.empty:
         center_lat = display_df["lat"].mean()
         center_lon = display_df["lon"].mean()
-        zoom_level = 13 if target_only else 13
+        zoom_level = 13
     else:
         center_lat, center_lon = 34.3400, 134.0450
         zoom_level = 13
         
     m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_level)
     
-    # クラスタリンググループを追加
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
 
-    # 現住所ピンのプロット
     if home_address and home_address.strip() != "":
         h_lat, h_lon = geocode_address(home_address)
         home_popup = f"""
@@ -398,7 +398,6 @@ def build_map(df, target_only=False, home_address=""):
             icon=folium.Icon(color="blue", icon="home", prefix="fa")
         ).add_to(m)
 
-    # 患者ピンのプロット
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
