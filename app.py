@@ -291,7 +291,7 @@ if mode == "🧪 仮想シミュレーション":
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.session_state.show_route = False # 再計算用にルート表示をリセット
+            st.session_state.show_route = False
             st.success("指定地域で照合を更新しました")
             
     for area in st.session_state.sim_areas:
@@ -493,7 +493,7 @@ if not df_visit_needed.empty:
     with col_info:
         if not st.session_state.show_route:
             st.info("💡 「巡回ルートを計算・表示」ボタンを押すと、トリアージと距離を考慮した最適な訪問順序と巡回ルートが描画されます。")
-            st.markdown(**【訪問対象患者】**)
+            st.markdown("**【訪問対象患者】**")
             for _, r in df_visit_needed.iterrows():
                 st.markdown(f"- ⚠️ **{r['患者名']} 様** ({r['トリアージ']}) - {r['住所']}")
         else:
