@@ -29,29 +29,33 @@ from reportlab.pdfbase.ttfonts import TTFont
 JST = timezone(timedelta(hours=9))
 
 # ---------------------------------------------------------
-# ページ基本設定 & カスタムCSS（余白削減・ヘッダー/GitHub非表示）
+# ページ基本設定 & カスタムCSS（余白再削減・ライト/ダークモード切替残し）
 # ---------------------------------------------------------
 st.set_page_config(page_title="停電アラート", layout="wide")
 
-# 改良③ & 改良④: 上部余白の削減、右上ヘッダー（Fork / GitHubアイコン等）の非表示化
 st.markdown("""
     <style>
-        /* メインコンテンツエリアの上部余白を大幅削減 (改良③) */
+        /* メインコンテンツエリアの上部余白をさらに1/2へ削減 */
         .block-container {
-            padding-top: 1.2rem !important;
+            padding-top: 0.3rem !important;
             padding-bottom: 1rem !important;
         }
-        /* サイドバーの上部余白を大幅削減 (改良③) */
+        /* サイドバーの上部余白をさらに1/2へ削減 */
         [data-testid="stSidebarUserContent"] {
-            padding-top: 1.2rem !important;
+            padding-top: 0.3rem !important;
         }
-        /* 右上ヘッダー・Fork・GitHubアイコン等の完全非表示化 (改良④) */
-        #MainMenu {visibility: hidden;}
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
+        
+        /* -------------------------------------------------- */
+        /* 右上ヘッダー・ツールバーの表示設定                  */
+        /* -------------------------------------------------- */
+        /* ツールバー（ライト/ダーク切り替えボタン等）は表示を維持 */
+        header {visibility: visible !important;}
+        [data-testid="stHeader"] {display: block !important;}
+        [data-testid="stToolbar"] {display: flex !important;}
+
+        /* 不要な「Deploy / Fork / GitHub」ボタンのみを非表示化 */
         .stAppDeployButton {display: none !important;}
-        [data-testid="stHeader"] {display: none !important;}
-        [data-testid="stToolbar"] {display: none !important;}
+        [data-testid="stHeader"] [data-testid="stToolbar"] > div:has(button[title="Deploy"]) {display: none !important;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -248,7 +252,7 @@ if st.session_state.patients_data is None:
     st.session_state.patients_data = initial_df
 
 # ---------------------------------------------------------
-# 3. サイドバー設定 & データ読み込み (改良①対応)
+# 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
@@ -272,7 +276,6 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# 改良①: パターン選択ラジオボタン＆「データ更新」ボタンの実装
 update_mode = st.sidebar.radio(
     "取り込み方法を選択",
     options=["現リスト追加", "新規リスト"],
@@ -309,18 +312,13 @@ if st.sidebar.button("データ更新", type="primary", use_container_width=True
                 new_df["lon"] = lons
 
                 if update_mode == "新規リスト":
-                    # 前のデータを削除し、新データのみ適用
                     st.session_state.patients_data = new_df
-                    st.session_state.patient_status = {} # ステータス初期化
+                    st.session_state.patient_status = {}
                     st.sidebar.success("前のデータを削除し、新規リストを作成しました！")
                 else:
-                    # 現リスト追加（患者名で重複チェックし、重複がある場合は新データを上書き）
                     current_df = st.session_state.patients_data
-                    
-                    # 患者名をキーにして重複上書き
                     combined_df = pd.concat([current_df, new_df], ignore_index=True)
                     updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
-                    
                     st.session_state.patients_data = updated_df
                     st.sidebar.success("現リストにデータを追記・上書き更新しました！")
                 st.rerun()
@@ -373,13 +371,12 @@ if mode == "仮想シミュレーションモード":
         st.caption(f"現在のテスト対象エリア: **指定なし（全員正常）** (バックグラウンドで5分ごとにWebデータ自動更新中: {st.session_state.last_fetch_time})")
 
 else:
-    # リアルタイムWeb取得モード
     col_rt_title, col_rt_btn, _ = st.columns([4, 1.5, 4.5])
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
     with col_rt_btn:
         if st.button("🔄 最新情報に更新", help="四国電力の最新データを今すぐ手動で取得します"):
-            fetch_outage_info.clear() # キャッシュクリア
+            fetch_outage_info.clear()
             bg_realtime_outage_data = fetch_outage_info()
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.rerun()
@@ -478,7 +475,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数 (改良②: 出発地指定ナビ＆名前横のステータス表示対応)
+# 5. 地図描画関数 (出発地指定ナビ＆名前横のステータス表示対応)
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -511,7 +508,6 @@ def build_map(df, target_only=False, home_address=""):
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
-        # 改良②: 名前横に付与するステータスバッジの決定
         if row["対応ステータス"] == "安否確認済（安全）":
             color = "gray"
             icon_type = "check-circle"
@@ -525,14 +521,12 @@ def build_map(df, target_only=False, home_address=""):
             icon_type = "user"
             status_badge = "<span style='color:green;'>🟢 停電なし</span>"
         
-        # 改良②: ナビ起動時に動作設定の「現住所（拠点・現在地）」を出発地(origin)として明示的に設定
         encoded_origin = urllib.parse.quote(str(home_address))
         encoded_dest = urllib.parse.quote(str(row['住所']))
         nav_url = f"https://www.google.com/maps/dir/?api=1&origin={encoded_origin}&destination={encoded_dest}"
         
         tel_clean = str(row['連絡先']).replace("-", "").replace("X", "").replace("x", "")
         
-        # 改良②: 個人ウィンドウの名前横にステータスバッジを表示
         popup_html = f"""
         <div style='font-size:12px; width:230px; line-height:1.6;'>
             <b style='color:red;'>【{row['トリアージ']}】</b><br>
