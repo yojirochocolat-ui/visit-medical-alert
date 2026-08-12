@@ -139,7 +139,7 @@ if "patient_status" not in st.session_state:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# 現住所（拠点・現在地）
+# 【強力更新】新しいキーを設定して既存キャッシュを完全に上書き
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松市サンポート2番1号",
