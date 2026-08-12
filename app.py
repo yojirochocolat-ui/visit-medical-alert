@@ -76,7 +76,7 @@ def generate_50_kagawa_patients():
 
 @st.cache_data
 def load_template_file():
-    """患者リストのフォーマット用テンプレートExcelを生成（xlsxwriter依存を排除）"""
+    """患者リストのフォーマット用テンプレートExcelを生成"""
     df_template = pd.DataFrame([{
         "ID": "例: A-101",
         "患者名": "山田 太郎",
@@ -87,15 +87,11 @@ def load_template_file():
         "バッテリ": "あり",
         "備考": "エレベーター停止時は階段使用"
     }])
+    # バイトデータ変換
     import io
     output = io.BytesIO()
-    # openpyxlを使用、無ければ自動選択
-    try:
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_template.to_excel(writer, index=False, sheet_name='Template')
-    except Exception:
-        with pd.ExcelWriter(output) as writer:
-            df_template.to_excel(writer, index=False, sheet_name='Template')
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_template.to_excel(writer, index=False, sheet_name='Template')
     return output.getvalue(), "patient_list_template.xlsx"
 
 def send_actual_email(smtp_server, smtp_port, sender_email, sender_password, recipients, subject, body_text):
@@ -149,21 +145,6 @@ current_location_addr = st.sidebar.text_input(
     value="高松市サンポート2番1号",
     key="input_current_location_v3",
     help="マップ上に現在地/拠点ピンとして表示され、ナビ起動時の出発地としても使用されます"
-)
-
-# 追加：スタッフ1・スタッフ2の現在地入力欄
-staff1_location_addr = st.sidebar.text_input(
-    "🚶 スタッフ1の現在地",
-    value="高松市瓦町2丁目",
-    key="input_staff1_location",
-    help="マップ上にスタッフ1のピンとして表示されます"
-)
-
-staff2_location_addr = st.sidebar.text_input(
-    "🚶 スタッフ2の現在地",
-    value="丸亀市大手町2丁目",
-    key="input_staff2_location",
-    help="マップ上にスタッフ2のピンとして表示されます"
 )
 
 mode = st.sidebar.radio(
@@ -313,47 +294,20 @@ st.dataframe(
 st.markdown("---")
 
 # --- 2. 評価・マップ機能 ---
-st.header("2. 拠点・スタッフ・患者位置マップ")
+st.header("2. 拠点・患者位置マップ")
 
 # マップデータ構築
 map_df = df[["lat", "lon", "患者名", "停電リスク"]].copy()
 
-# 1. 拠点ピンの追加
+# 現在地/拠点ピンの追加
 base_lat, base_lon = geocode_address(current_location_addr)
-special_pins = [{
+base_row = pd.DataFrame([{
     "lat": base_lat,
     "lon": base_lon,
     "患者名": f"📍 拠点（{current_location_addr}）",
     "停電リスク": "拠点"
-}]
-
-# 2. スタッフ1のピンの追加（入力がある場合）
-if staff1_location_addr.strip():
-    s1_lat, s1_lon = geocode_address(staff1_location_addr)
-    # 少し重なりを防ぐためジッター付加
-    s1_lat += random.uniform(-0.0005, 0.0005)
-    s1_lon += random.uniform(-0.0005, 0.0005)
-    special_pins.append({
-        "lat": s1_lat,
-        "lon": s1_lon,
-        "患者名": f"🚶 スタッフ1（{staff1_location_addr}）",
-        "停電リスク": "スタッフ"
-    })
-
-# 3. スタッフ2のピンの追加（入力がある場合）
-if staff2_location_addr.strip():
-    s2_lat, s2_lon = geocode_address(staff2_location_addr)
-    s2_lat += random.uniform(-0.0005, 0.0005)
-    s2_lon += random.uniform(-0.0005, 0.0005)
-    special_pins.append({
-        "lat": s2_lat,
-        "lon": s2_lon,
-        "患者名": f"🚶 スタッフ2（{staff2_location_addr}）",
-        "停電リスク": "スタッフ"
-    })
-
-pins_df = pd.DataFrame(special_pins)
-map_df = pd.concat([pins_df, map_df], ignore_index=True)
+}])
+map_df = pd.concat([base_row, map_df], ignore_index=True)
 
 st.map(map_df, latitude="lat", longitude="lon", size=20)
 
@@ -409,8 +363,6 @@ if st.button("📧 対象患者のアラート通知を一括送信", type="prim
 
 ■ 現在の状況サマリー
 ・拠点位置: {current_location_addr}
-・スタッフ1位置: {staff1_location_addr if staff1_location_addr else "未指定"}
-・スタッフ2位置: {staff2_location_addr if staff2_location_addr else "未指定"}
 ・登録総患者数: {total_count} 名
 ・未対応患者数: {unhandled_count} 名
 ・停電リスク注意患者数: {alert_count} 名
