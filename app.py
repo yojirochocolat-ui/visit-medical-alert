@@ -28,8 +28,32 @@ from reportlab.pdfbase.ttfonts import TTFont
 # 日本時間（JST）の定義
 JST = timezone(timedelta(hours=9))
 
-# ページ基本設定
+# ---------------------------------------------------------
+# ページ基本設定 & カスタムCSS（余白削減・ヘッダー/GitHub非表示）
+# ---------------------------------------------------------
 st.set_page_config(page_title="停電アラート", layout="wide")
+
+# 改良③ & 改良④: 上部余白の削減、右上ヘッダー（Fork / GitHubアイコン等）の非表示化
+st.markdown("""
+    <style>
+        /* メインコンテンツエリアの上部余白を大幅削減 (改良③) */
+        .block-container {
+            padding-top: 1.2rem !important;
+            padding-bottom: 1rem !important;
+        }
+        /* サイドバーの上部余白を大幅削減 (改良③) */
+        [data-testid="stSidebarUserContent"] {
+            padding-top: 1.2rem !important;
+        }
+        /* 右上ヘッダー・Fork・GitHubアイコン等の完全非表示化 (改良④) */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        .stAppDeployButton {display: none !important;}
+        [data-testid="stHeader"] {display: none !important;}
+        [data-testid="stToolbar"] {display: none !important;}
+    </style>
+""", unsafe_allow_html=True)
 
 # 🔄 5分（300,000ミリ秒）ごとに画面を自動リロード
 st_autorefresh(interval=300000, key="data_auto_refresh")
@@ -129,7 +153,7 @@ def fetch_outage_info():
             
     return outage_list
 
-# ★ モードに関わらずバックグラウンドで常にWeb最新データを同期取得・キャッシュ更新する処理
+# モードに関わらずバックグラウンドで常にWeb最新データを同期取得・キャッシュ更新する処理
 bg_realtime_outage_data = fetch_outage_info()
 st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
@@ -224,14 +248,14 @@ if st.session_state.patients_data is None:
     st.session_state.patients_data = initial_df
 
 # ---------------------------------------------------------
-# 3. サイドバー設定 & データ読み込み
+# 3. サイドバー設定 & データ読み込み (改良①対応)
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松シンボルタワー",
-    help="マップ上に現在地/拠点ピンとして表示されます"
+    help="マップ上に現在地/拠点ピンとして表示され、ナビ起動時の出発地としても使用されます"
 )
 
 mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "リアルタイムWeb取得モード"])
@@ -248,42 +272,62 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を取り込み", type=["xlsx", "csv"])
+# 改良①: パターン選択ラジオボタン＆「データ更新」ボタンの実装
+update_mode = st.sidebar.radio(
+    "取り込み方法を選択",
+    options=["現リスト追加", "新規リスト"],
+    index=0,
+    help="【現リスト追加】: 重複する名前がある場合は上書き追加します。\n【新規リスト】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
+)
 
-if uploaded_file is not None:
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            new_df = pd.read_csv(uploaded_file)
-        else:
-            new_df = pd.read_excel(uploaded_file)
-        
-        target_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考"]
-        for col in target_cols:
-            if col not in new_df.columns:
-                new_df[col] = "-"
-        new_df = new_df.fillna("-")
-        
-        with st.spinner("位置情報を計算してデータを統合中..."):
-            lats, lons = [], []
-            random.seed(999)
-            for _, r in new_df.iterrows():
-                base_lat, base_lon = geocode_address(r["住所"])
-                jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
-                jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
-                lats.append(jitter_lat)
-                lons.append(jitter_lon)
-            new_df["lat"] = lats
-            new_df["lon"] = lons
+uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
 
-            current_df = st.session_state.patients_data.set_index("ID")
-            new_df = new_df.set_index("ID")
+if st.sidebar.button("データ更新", type="primary", use_container_width=True):
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                new_df = pd.read_csv(uploaded_file)
+            else:
+                new_df = pd.read_excel(uploaded_file)
             
-            updated_df = new_df.combine_first(current_df).reset_index()
-            st.session_state.patients_data = updated_df
+            target_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考"]
+            for col in target_cols:
+                if col not in new_df.columns:
+                    new_df[col] = "-"
+            new_df = new_df.fillna("-")
             
-        st.sidebar.success("データを取り込みました！（ID重複分は上書き更新）")
-    except Exception as e:
-        st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
+            with st.spinner("位置情報を計算してデータを更新中..."):
+                lats, lons = [], []
+                random.seed(999)
+                for _, r in new_df.iterrows():
+                    base_lat, base_lon = geocode_address(r["住所"])
+                    jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
+                    jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
+                    lats.append(jitter_lat)
+                    lons.append(jitter_lon)
+                new_df["lat"] = lats
+                new_df["lon"] = lons
+
+                if update_mode == "新規リスト":
+                    # 前のデータを削除し、新データのみ適用
+                    st.session_state.patients_data = new_df
+                    st.session_state.patient_status = {} # ステータス初期化
+                    st.sidebar.success("前のデータを削除し、新規リストを作成しました！")
+                else:
+                    # 現リスト追加（患者名で重複チェックし、重複がある場合は新データを上書き）
+                    current_df = st.session_state.patients_data
+                    
+                    # 患者名をキーにして重複上書き
+                    combined_df = pd.concat([current_df, new_df], ignore_index=True)
+                    updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
+                    
+                    st.session_state.patients_data = updated_df
+                    st.sidebar.success("現リストにデータを追記・上書き更新しました！")
+                st.rerun()
+        except Exception as e:
+            st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
+    else:
+        st.sidebar.warning("ファイルを選択してから「データ更新」を押してください。")
 
 st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
 
@@ -434,7 +478,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数 (MarkerCluster & 全ピン包含フィット対応)
+# 5. 地図描画関数 (改良②: 出発地指定ナビ＆名前横のステータス表示対応)
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address=""):
     if target_only:
@@ -467,23 +511,32 @@ def build_map(df, target_only=False, home_address=""):
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
+        # 改良②: 名前横に付与するステータスバッジの決定
         if row["対応ステータス"] == "安否確認済（安全）":
             color = "gray"
             icon_type = "check-circle"
+            status_badge = "<span style='color:gray;'>⚪ 確認済</span>"
         elif is_alert:
             color = "red"
             icon_type = "exclamation-triangle"
+            status_badge = "<span style='color:red;'>🔴 停電未対応</span>"
         else:
             color = "green"
             icon_type = "user"
+            status_badge = "<span style='color:green;'>🟢 停電なし</span>"
         
-        nav_url = f"https://www.google.com/maps/dir/?api=1&destination={urllib.parse.quote(str(row['住所']))}"
+        # 改良②: ナビ起動時に動作設定の「現住所（拠点・現在地）」を出発地(origin)として明示的に設定
+        encoded_origin = urllib.parse.quote(str(home_address))
+        encoded_dest = urllib.parse.quote(str(row['住所']))
+        nav_url = f"https://www.google.com/maps/dir/?api=1&origin={encoded_origin}&destination={encoded_dest}"
+        
         tel_clean = str(row['連絡先']).replace("-", "").replace("X", "").replace("x", "")
         
+        # 改良②: 個人ウィンドウの名前横にステータスバッジを表示
         popup_html = f"""
-        <div style='font-size:12px; width:220px; line-height:1.5;'>
+        <div style='font-size:12px; width:230px; line-height:1.6;'>
             <b style='color:red;'>【{row['トリアージ']}】</b><br>
-            <b>氏名:</b> {row['患者名']}<br>
+            <b>氏名:</b> {row['患者名']} ({status_badge})<br>
             <b>状態:</b> {row['対応ステータス']}<br>
             <b>装置:</b> {row['使用装置']} (バッテリ:{row['バッテリ']})<br>
             <b>住所:</b> {row['住所']}<br><hr style='margin:5px 0;'>
@@ -493,7 +546,7 @@ def build_map(df, target_only=False, home_address=""):
         """
         folium.Marker(
             location=[row["lat"], row["lon"]],
-            popup=folium.Popup(popup_html, max_width=240),
+            popup=folium.Popup(popup_html, max_width=250),
             tooltip=f"{row['トリアージ']} | {row['患者名']} 様 ({row['対応ステータス']})",
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         ).add_to(marker_cluster)
