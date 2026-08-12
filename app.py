@@ -220,7 +220,7 @@ def load_template_file():
         output.seek(0)
         return output.getvalue(), "患者リスト_登録フォーマット.xlsx"
 
-# 初期データのロード (ジッター精度最適化)
+# 初期データのロード
 if st.session_state.patients_data is None:
     initial_df = pd.DataFrame(generate_50_kagawa_patients())
     lats, lons = [], []
@@ -240,7 +240,6 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# ① 情報取得モード切り替え（動作設定の直下に配置）
 mode = st.sidebar.radio(
     "情報取得モード", 
     options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
@@ -254,7 +253,6 @@ current_location_addr = st.sidebar.text_input(
     help="マップ上に拠点ピン(青)として表示され、ナビ起動時の標準出発地として使用されます"
 )
 
-# ② スタッフ1, 2の入力欄とON/OFFスライドスイッチの配置
 st.sidebar.markdown("---")
 st.sidebar.subheader("🏃 スタッフ現在地設定")
 
@@ -268,7 +266,7 @@ with col_s1_text:
         help="マップ上にスタッフ1のピン(橙)として表示されます"
     )
 with col_s1_toggle:
-    st.write(" ")  # 位置調整用の余白
+    st.write(" ")
     staff1_show_pin = st.toggle("表示", value=True, key="toggle_staff1_pin")
 
 col_s2_text, col_s2_toggle = st.sidebar.columns([3, 1])
@@ -281,7 +279,7 @@ with col_s2_text:
         help="マップ上にスタッフ2のピン(紫)として表示されます"
     )
 with col_s2_toggle:
-    st.write(" ")  # 位置調整用の余白
+    st.write(" ")
     staff2_show_pin = st.toggle("表示", value=True, key="toggle_staff2_pin")
 
 st.sidebar.markdown("---")
@@ -307,7 +305,6 @@ with col_btn1:
 with col_btn2:
     btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
 
-# データ更新処理
 if btn_update:
     if uploaded_file is not None:
         try:
@@ -503,7 +500,7 @@ df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数 (ON/OFFスライドフラグ受け取りに対応)
+# 5. 地図描画関数
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True):
     if target_only:
@@ -513,14 +510,12 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     
     home_lat, home_lon = geocode_address(home_address)
     
-    # --- 自動ジャンプ判定 ---
     target_patient = None
     if selected_patient_id and selected_patient_id != "選択なし（全体表示）":
         matched = df[df["ID"] == selected_patient_id]
         if not matched.empty:
             target_patient = matched.iloc[0]
 
-    # ピンポイントズームまたは全体表示の設定
     if target_patient is not None:
         m = folium.Map(location=[target_patient["lat"], target_patient["lon"]], zoom_start=18)
     else:
@@ -529,7 +524,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
     bounds_points = []
     
-    # 🔵 現住所（拠点）ピン
     if home_address and home_address.strip() != "":
         home_popup = f"""
         <div style='font-size:12px; width:180px;'>
@@ -545,7 +539,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([home_lat, home_lon])
 
-    # 🟠 スタッフ1ピン（ONの時のみ描画）
     if show_staff1 and staff1_address and staff1_address.strip() != "":
         s1_lat, s1_lon = geocode_address(staff1_address)
         s1_popup = f"""
@@ -562,7 +555,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([s1_lat, s1_lon])
 
-    # 🟣 スタッフ2ピン（ONの時のみ描画）
     if show_staff2 and staff2_address and staff2_address.strip() != "":
         s2_lat, s2_lon = geocode_address(staff2_address)
         s2_popup = f"""
@@ -579,7 +571,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([s2_lat, s2_lon])
 
-    # 患者ピンの打刻
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
@@ -717,7 +708,9 @@ if len(df_alert_all) > 0:
     
     st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
     
-    col_dl1, col_dl2, _ = st.columns([1, 1, 2])
+    # 3つの列（PDFダウンロード、HTMLダウンロード、巡回ルート検索ボタン）を横並びで配置
+    col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
+    
     with col_dl1:
         pdf_data = create_pdf_report(df_visit_target, created_time_str)
         st.download_button(
@@ -727,6 +720,7 @@ if len(df_alert_all) > 0:
             mime="application/pdf",
             use_container_width=True
         )
+        
     with col_dl2:
         m_target_dl = build_map(
             df_result, 
@@ -746,25 +740,24 @@ if len(df_alert_all) > 0:
             use_container_width=True
         )
 
-    # 🚗 複数人巡回ルートの外部連携ボタンの追加
-    if len(df_visit_target) > 0:
-        st.markdown("##### 🚗 複数人巡回ルートの外部連携")
-        target_for_route = df_visit_target.sort_values(by="triage_score", ascending=False)
-        addresses = target_for_route["住所"].tolist()
-        origin = current_location_addr
-        
-        if len(addresses) > 1:
-            destination = addresses[-1]
-            waypoints = "|".join(addresses[:-1])
-            multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(destination)}&waypoints={urllib.parse.quote(waypoints)}"
-        elif len(addresses) == 1:
-            multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(addresses[0])}"
-        else:
-            multi_nav_url = ""
+    with col_dl3:
+        if len(df_visit_target) > 0:
+            target_for_route = df_visit_target.sort_values(by="triage_score", ascending=False)
+            addresses = target_for_route["住所"].tolist()
+            origin = current_location_addr
+            
+            if len(addresses) > 1:
+                destination = addresses[-1]
+                waypoints = "|".join(addresses[:-1])
+                multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(destination)}&waypoints={urllib.parse.quote(waypoints)}"
+            elif len(addresses) == 1:
+                multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(addresses[0])}"
+            else:
+                multi_nav_url = ""
 
-        if multi_nav_url:
-            st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:inline-block; background:#f0ad4e; color:white; padding:8px 15px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px;">🚗 停電対象者（{len(addresses)}名）を高優先順に経由するGoogleマップナビを開く</a>', unsafe_allow_html=True)
-            st.caption("※Googleマップの仕様上、最大9箇所までの経由地を一度に設定してルート案内を起動できます。")
+            if multi_nav_url:
+                st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#f0ad4e; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
+                st.caption("※Googleマップナビが別タブで起動します")
 
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
@@ -782,7 +775,6 @@ if only_unhandled:
 else:
     display_target_df = df_result.copy()
 
-# 患者選択セレクトボックスの選択肢作成
 patient_options = ["選択なし（全体表示）"] + [
     f"{r['ID']} | {r['患者名']} 様 ({r['トリアージ']} - {r['住所']})"
     for _, r in display_target_df.iterrows()
@@ -888,7 +880,6 @@ else:
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 
-# --- テーブル編集時のセッション更新処理 ---
 editor_key = "table_editor" if layout_option == "左右並べ（PC・大画面向け）" else "table_editor_tab"
 if editor_key in st.session_state and st.session_state[editor_key].get("edited_rows"):
     edited_rows = st.session_state[editor_key]["edited_rows"]
