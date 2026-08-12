@@ -30,7 +30,7 @@ st.set_page_config(page_title="停電アラート", layout="wide")
 st.markdown("""
     <style>
         .block-container {
-            padding-top: 0.3rem !important;
+            padding-top: 1rem !important;
             padding-bottom: 1rem !important;
         }
         [data-testid="stSidebarUserContent"] {
@@ -657,36 +657,18 @@ def create_pdf_report(df_alert_patients, created_time):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-# タイトルとラジオボタンを完全に同じ行に近づけて配置するHTML+CSSブロック
-st.markdown("""
-<style>
-.inline-header-container {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    margin-bottom: -15px;
-}
-.inline-header-container h3 {
-    margin: 0 !important;
-    padding: 0 !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# Streamlitのラジオボタンの選択状態をセッションで保持して処理
-layout_option = st.radio(
-    "表示スタイル", 
-    ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
-    horizontal=True,
-    label_visibility="collapsed",
-    key="layout_option_radio"
-)
-
-st.markdown(f"""
-<div class="inline-header-container">
-    <h3>2. 患者照合結果 & マップ可視化</h3>
-</div>
-""", unsafe_allow_html=True)
+# タイトル行とレイアウト切り替えラジオボタンを綺麗に同じ行に並べる
+col_title, col_radio = st.columns([5, 5])
+with col_title:
+    st.subheader("2. 患者照合結果 & マップ可視化")
+with col_radio:
+    layout_option = st.radio(
+        "表示スタイル", 
+        ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="layout_option_radio"
+    )
 
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 if len(df_alert_all) > 0:
