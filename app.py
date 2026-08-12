@@ -29,33 +29,34 @@ from reportlab.pdfbase.ttfonts import TTFont
 JST = timezone(timedelta(hours=9))
 
 # ---------------------------------------------------------
-# ページ基本設定 & カスタムCSS（余白再削減・ライト/ダークモード切替残し）
+# ページ基本設定 & カスタムCSS（余白削減・設定メニュー残し・Fork/GitHub非表示）
 # ---------------------------------------------------------
 st.set_page_config(page_title="停電アラート", layout="wide")
 
 st.markdown("""
     <style>
-        /* メインコンテンツエリアの上部余白をさらに1/2へ削減 */
+        /* メインコンテンツエリアの上部余白 */
         .block-container {
             padding-top: 0.3rem !important;
             padding-bottom: 1rem !important;
         }
-        /* サイドバーの上部余白をさらに1/2へ削減 */
+        /* サイドバーの上部余白 */
         [data-testid="stSidebarUserContent"] {
             padding-top: 0.3rem !important;
         }
         
-        /* -------------------------------------------------- */
-        /* 右上ヘッダー・ツールバーの表示設定                  */
-        /* -------------------------------------------------- */
-        /* ツールバー（ライト/ダーク切り替えボタン等）は表示を維持 */
+        /* --- 右上ヘッダーのピンポイント制御 --- */
+        /* ヘッダー全体・ツールバー（設定メニュー等）は表示 */
         header {visibility: visible !important;}
         [data-testid="stHeader"] {display: block !important;}
-        [data-testid="stToolbar"] {display: flex !important;}
-
-        /* 不要な「Deploy / Fork / GitHub」ボタンのみを非表示化 */
-        .stAppDeployButton {display: none !important;}
-        [data-testid="stHeader"] [data-testid="stToolbar"] > div:has(button[title="Deploy"]) {display: none !important;}
+        
+        /* Forkボタン・GitHubアイコン（リポジトリ連携領域）のみをピンポイントで非表示 */
+        [data-testid="stAppHeaderActionElements"] {
+            display: none !important;
+        }
+        .stAppDeployButton {
+            display: none !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +87,7 @@ if "filter_unhandled" not in st.session_state:
 # ---------------------------------------------------------
 @st.cache_data(ttl=86400)
 def geocode_address(address):
-    if "シンボルタワー" in str(address) or "高松駅" in str(address):
+    if "サンポート" in str(address) or "シンボルタワー" in str(address) or "高松駅" in str(address):
         return 34.3533, 134.0470
     
     if not address or pd.isna(address) or str(address).strip() == "-":
@@ -256,9 +257,10 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
+# 現住所のデフォルト値を「高松市サンポート2番1号」に変更
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
-    value="高松シンボルタワー",
+    value="高松市サンポート2番1号",
     help="マップ上に現在地/拠点ピンとして表示され、ナビ起動時の出発地としても使用されます"
 )
 
@@ -276,11 +278,12 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
+# 選択肢の文言を変更：「現リストに追加」「現リストと入れ替え」
 update_mode = st.sidebar.radio(
     "取り込み方法を選択",
-    options=["現リスト追加", "新規リスト"],
+    options=["現リストに追加", "現リストと入れ替え"],
     index=0,
-    help="【現リスト追加】: 重複する名前がある場合は上書き追加します。\n【新規リスト】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
+    help="【現リストに追加】: 重複する名前がある場合は上書き追加します。\n【現リストと入れ替え】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
 )
 
 uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
@@ -311,16 +314,16 @@ if st.sidebar.button("データ更新", type="primary", use_container_width=True
                 new_df["lat"] = lats
                 new_df["lon"] = lons
 
-                if update_mode == "新規リスト":
+                if update_mode == "現リストと入れ替え":
                     st.session_state.patients_data = new_df
                     st.session_state.patient_status = {}
-                    st.sidebar.success("前のデータを削除し、新規リストを作成しました！")
+                    st.sidebar.success("前のデータを削除し、新規リストに入れ替えました！")
                 else:
                     current_df = st.session_state.patients_data
                     combined_df = pd.concat([current_df, new_df], ignore_index=True)
                     updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
                     st.session_state.patients_data = updated_df
-                    st.sidebar.success("現リストにデータを追記・上書き更新しました！")
+                    st.sidebar.success("現リストにデータを追加・上書き更新しました！")
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
