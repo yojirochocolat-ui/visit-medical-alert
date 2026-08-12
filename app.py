@@ -42,11 +42,10 @@ st.markdown("""
         }
         
         /* --- 右上ヘッダーのピンポイント制御 --- */
-        /* ヘッダー全体・ツールバー（設定メニュー等）は表示 */
         header {visibility: visible !important;}
         [data-testid="stHeader"] {display: block !important;}
         
-        /* Forkボタン・GitHubアイコン（リポジトリ連携領域）のみをピンポイントで非表示 */
+        /* Forkボタン・GitHubアイコンのみを非表示 */
         [data-testid="stAppHeaderActionElements"] {
             display: none !important;
         }
@@ -77,9 +76,8 @@ if "patients_data" not in st.session_state:
     st.session_state.patients_data = None
 if "filter_unhandled" not in st.session_state:
     st.session_state.filter_unhandled = False
-# 【追加】マップでズーム移動対象とする選択患者の情報
-if "selected_patient_coords" not in st.session_state:
-    st.session_state.selected_patient_coords = None
+if "selected_patient_name" not in st.session_state:
+    st.session_state.selected_patient_name = "（全体表示）"
 
 # ---------------------------------------------------------
 # 住所から緯度・経度を取得する関数 (ジオコーディング)
@@ -152,7 +150,6 @@ def fetch_outage_info():
             
     return outage_list
 
-# バックグラウンドデータ取得
 bg_realtime_outage_data = fetch_outage_info()
 st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
 
@@ -261,15 +258,13 @@ staff1_location_addr = st.sidebar.text_input(
     "🏃 スタッフ1の現在地",
     value="",
     placeholder="例: 高松市瓦町1丁目",
-    key="input_staff1_location_v1",
-    help="マップ上にスタッフ1のピン(橙)として表示されます"
+    key="input_staff1_location_v1"
 )
 staff2_location_addr = st.sidebar.text_input(
     "🏃 スタッフ2の現在地",
     value="",
     placeholder="例: 高松市栗林町2丁目",
-    key="input_staff2_location_v1",
-    help="マップ上にスタッフ2のピン(紫)として表示されます"
+    key="input_staff2_location_v1"
 )
 
 mode = st.sidebar.radio(
@@ -293,8 +288,7 @@ update_mode = st.sidebar.radio(
     "取り込み方法を選択",
     options=["現リストに追加", "現リストと入れ替え"],
     index=0,
-    key="input_update_mode_v3",
-    help="【現リストに追加】: 重複する名前がある場合は上書き追加します。\n【現リストと入れ替え】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
+    key="input_update_mode_v3"
 )
 
 uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
@@ -305,9 +299,6 @@ with col_btn1:
 with col_btn2:
     btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
 
-# ---------------------------------------------------------
-# データ更新ボタンが押された時の処理
-# ---------------------------------------------------------
 if btn_update:
     if uploaded_file is not None:
         try:
@@ -343,16 +334,13 @@ if btn_update:
                     updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
                     st.session_state.patients_data = updated_df
                     st.sidebar.success("現リストにデータを追加・上書き更新しました！")
-                st.session_state.selected_patient_coords = None
+                st.session_state.selected_patient_name = "（全体表示）"
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
     else:
         st.sidebar.warning("ファイルを選択してから「データ更新」を押してください。")
 
-# ---------------------------------------------------------
-# 初期データに戻すボタンが押された時の処理
-# ---------------------------------------------------------
 if btn_reset:
     with st.spinner("デフォルトの初期患者リスト（50名）にリセット中..."):
         initial_df = pd.DataFrame(generate_50_kagawa_patients())
@@ -369,7 +357,7 @@ if btn_reset:
         
         st.session_state.patients_data = initial_df
         st.session_state.patient_status = {}
-        st.session_state.selected_patient_coords = None
+        st.session_state.selected_patient_name = "（全体表示）"
         st.sidebar.info("🔄 初期デフォルトの患者リストにリセットしました！")
         st.rerun()
 
@@ -404,7 +392,7 @@ if mode == "仮想シミュレーションモード":
             st.session_state.sim_areas = []
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.filter_unhandled = False
-            st.session_state.selected_patient_coords = None
+            st.session_state.selected_patient_name = "（全体表示）"
             st.rerun()
     for area in st.session_state.sim_areas:
         outage_data.append({"prefecture": "香川県", "city": area, "towns": [area], "raw_towns": area})
@@ -419,7 +407,7 @@ else:
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報 (四国4県対応)")
     with col_rt_btn:
-        if st.button("🔄 最新情報に更新", help="四国電力の最新データを今すぐ手動で取得します"):
+        if st.button("🔄 最新情報に更新"):
             fetch_outage_info.clear()
             bg_realtime_outage_data = fetch_outage_info()
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
@@ -440,7 +428,6 @@ else:
     else:
         st.success(f"現在（{created_time_str} 取得）、四国4県全域でWebサイト上に該当する停電情報はありません。")
 
-# --- 照合ロジック ---
 def check_outage(address, outage_list):
     if not outage_list:
         return False, "正常"
@@ -503,19 +490,16 @@ for idx, row in st.session_state.patients_data.iterrows():
     })
 
 df_result = pd.DataFrame(results)
-# 優先度ソート (停電エリア > トリアージLv順)
 df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result = df_result.sort_values(
     by=["risk_sort", "triage_score"], ascending=[True, False]
 ).drop(columns=["risk_sort"])
 
-# 全停電アラート対象者（⚠️）
 df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
-# 訪問対象者（安否確認済（安全）を除外）
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数 (選択患者ズーム機能を追加)
+# 5. 地図描画関数 (選択患者ズーム対応)
 # ---------------------------------------------------------
 def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address=""):
     if target_only:
@@ -525,10 +509,15 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     
     home_lat, home_lon = geocode_address(home_address)
     
-    # 選択された患者がいる場合はその位置へ初期フォーカス（ズームレベル17）
-    selected = st.session_state.selected_patient_coords
-    if selected is not None:
-        m = folium.Map(location=[selected["lat"], selected["lon"]], zoom_start=17)
+    selected_name = st.session_state.selected_patient_name
+    selected_row = None
+    if selected_name != "（全体表示）":
+        match_df = display_df[display_df["患者名"] == selected_name]
+        if not match_df.empty:
+            selected_row = match_df.iloc[0]
+            
+    if selected_row is not None:
+        m = folium.Map(location=[selected_row["lat"], selected_row["lon"]], zoom_start=17)
     else:
         m = folium.Map(location=[home_lat, home_lon], zoom_start=15)
         
@@ -537,12 +526,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     
     # 🔵 現住所（拠点）ピン
     if home_address and home_address.strip() != "":
-        home_popup = f"""
-        <div style='font-size:12px; width:180px;'>
-            <b style='color:blue;'>📍 現住所（拠点）</b><br>
-            <b>場所:</b> {home_address}
-        </div>
-        """
+        home_popup = f"<div style='font-size:12px; width:180px;'><b style='color:blue;'>📍 現住所（拠点）</b><br><b>場所:</b> {home_address}</div>"
         folium.Marker(
             location=[home_lat, home_lon],
             popup=folium.Popup(home_popup, max_width=200),
@@ -554,12 +538,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     # 🟠 スタッフ1ピン
     if staff1_address and staff1_address.strip() != "":
         s1_lat, s1_lon = geocode_address(staff1_address)
-        s1_popup = f"""
-        <div style='font-size:12px; width:180px;'>
-            <b style='color:orange;'>🏃 スタッフ1</b><br>
-            <b>現在地:</b> {staff1_address}
-        </div>
-        """
+        s1_popup = f"<div style='font-size:12px; width:180px;'><b style='color:orange;'>🏃 スタッフ1</b><br><b>現在地:</b> {staff1_address}</div>"
         folium.Marker(
             location=[s1_lat, s1_lon],
             popup=folium.Popup(s1_popup, max_width=200),
@@ -571,12 +550,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     # 🟣 スタッフ2ピン
     if staff2_address and staff2_address.strip() != "":
         s2_lat, s2_lon = geocode_address(staff2_address)
-        s2_popup = f"""
-        <div style='font-size:12px; width:180px;'>
-            <b style='color:purple;'>🏃 スタッフ2</b><br>
-            <b>現在地:</b> {staff2_address}
-        </div>
-        """
+        s2_popup = f"<div style='font-size:12px; width:180px;'><b style='color:purple;'>🏃 スタッフ2</b><br><b>現在地:</b> {staff2_address}</div>"
         folium.Marker(
             location=[s2_lat, s2_lon],
             popup=folium.Popup(s2_popup, max_width=200),
@@ -585,7 +559,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([s2_lat, s2_lon])
 
-    # 患者ピンの打刻
+    # 患者ピン打刻
     for _, row in display_df.iterrows():
         is_alert = "⚠️" in row["停電リスク"]
         
@@ -619,8 +593,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         </div>
         """
         
-        # 選択中の患者の場合、ポップアップを開いた状態にする
-        is_selected = selected and (selected["name"] == row["患者名"])
+        is_selected = (selected_row is not None) and (selected_row["患者名"] == row["患者名"])
         
         marker = folium.Marker(
             location=[row["lat"], row["lon"]],
@@ -631,8 +604,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         marker.add_to(marker_cluster)
         bounds_points.append([row["lat"], row["lon"]])
         
-    # 選択されている患者がない場合のみ全ピンが入るように画角を自動調整
-    if selected is None:
+    if selected_row is None:
         if len(bounds_points) > 1:
             min_lat = min(p[0] for p in bounds_points)
             max_lat = max(p[0] for p in bounds_points)
@@ -750,15 +722,10 @@ if len(df_alert_all) > 0:
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
-# --- 絞り込みチェックボックス & 選択リセットボタン ---
-filter_col1, filter_col2 = st.columns([3, 2])
-with filter_col1:
+# --- 絞り込み ＆ ズーム表示患者の選択コントロール ---
+ctrl_col1, ctrl_col2 = st.columns([1, 1])
+with ctrl_col1:
     only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
-with filter_col2:
-    if st.session_state.selected_patient_coords:
-        if st.button("📍 マップ選択・ズームを解除"):
-            st.session_state.selected_patient_coords = None
-            st.rerun()
 
 if only_unhandled:
     display_target_df = df_result[
@@ -767,6 +734,16 @@ if only_unhandled:
     ].reset_index(drop=True)
 else:
     display_target_df = df_result.reset_index(drop=True)
+
+patient_options = ["（全体表示）"] + display_target_df["患者名"].tolist()
+with ctrl_col2:
+    selected_name = st.selectbox(
+        "📍 マップでズーム表示する患者を選択",
+        options=patient_options,
+        index=patient_options.index(st.session_state.selected_patient_name) if st.session_state.selected_patient_name in patient_options else 0,
+        key="select_zoom_patient"
+    )
+    st.session_state.selected_patient_name = selected_name
 
 display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 column_config = {
@@ -790,12 +767,9 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 
-list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（行クリックでマップ移動 / 編集可）</span>"
+list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（表内で直接編集可）</span>"
 map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 
-# ---------------------------------------------------------
-# データエディタ描画 & 行選択・編集検知関数
-# ---------------------------------------------------------
 def render_patient_table(key_name):
     edited_data = st.data_editor(
         display_target_df[display_cols],
@@ -803,9 +777,7 @@ def render_patient_table(key_name):
         use_container_width=True,
         height=450,
         hide_index=True,
-        key=key_name,
-        selection_mode="single-row",
-        on_select="rerun"
+        key=key_name
     )
     return edited_data
 
@@ -849,30 +821,11 @@ else:
         )
         st_folium(m_target, width="100%", height=450, key="folium_map_tab3")
 
-# --- テーブル操作時（行クリック または 値編集）のセッション更新処理 ---
+# --- セル編集時のセッション更新処理 ---
 editor_key = "table_editor" if layout_option == "左右並べ（PC・大画面向け）" else "table_editor_tab"
 
 if editor_key in st.session_state:
     editor_state = st.session_state[editor_key]
-    
-    # 1. 行選択イベント（クリックされた患者の座標を取得してマップズーム設定）
-    selected_rows = editor_state.get("selection", {}).get("rows", [])
-    if selected_rows:
-        row_idx = selected_rows[0]
-        if row_idx < len(display_target_df):
-            selected_patient = display_target_df.iloc[row_idx]
-            curr_sel = st.session_state.selected_patient_coords
-            
-            # 前回選択と異なる場合のみセッションを更新してリロード
-            if curr_sel is None or curr_sel.get("name") != selected_patient["患者名"]:
-                st.session_state.selected_patient_coords = {
-                    "lat": selected_patient["lat"],
-                    "lon": selected_patient["lon"],
-                    "name": selected_patient["患者名"]
-                }
-                st.rerun()
-
-    # 2. セル編集イベント
     edited_rows = editor_state.get("edited_rows", {})
     if edited_rows:
         updated_flag = False
