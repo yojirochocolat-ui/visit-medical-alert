@@ -657,14 +657,18 @@ def create_pdf_report(df_alert_patients, created_time):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-# タイトルのすぐ下にラジオボタンを縦に並べる（水平並びを解除）
-st.subheader("2. 患者照合結果 & マップ可視化")
-layout_option = st.radio(
-    "表示スタイル", 
-    ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
-    horizontal=False,
-    key="layout_option_radio"
-)
+# タイトル行とレイアウト切り替えラジオボタンを綺麗に同じ行に並べる
+col_title, col_radio = st.columns([5, 5])
+with col_title:
+    st.subheader("2. 患者照合結果 & マップ可視化")
+with col_radio:
+    layout_option = st.radio(
+        "表示スタイル", 
+        ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="layout_option_radio"
+    )
 
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 if len(df_alert_all) > 0:
