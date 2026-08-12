@@ -258,18 +258,18 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# 現住所のデフォルト値（keyを指定してキャッシュを更新）
+# 【強力更新】新しいキーを設定して既存キャッシュを完全に上書き
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松市サンポート2番1号",
-    key="input_current_location_v2",
+    key="input_current_location_v3",
     help="マップ上に現在地/拠点ピンとして表示され、ナビ起動時の出発地としても使用されます"
 )
 
 mode = st.sidebar.radio(
     "情報取得モード", 
-    ["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
-    key="input_fetch_mode_v2"
+    options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
+    key="input_fetch_mode_v3"
 )
 
 st.sidebar.markdown("---")
@@ -284,12 +284,12 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# 文言変更版ラジオボタン（keyを追加して表示強制更新）
+# 【強力更新】選択肢を「現リストと入れ替え」に刷新し、新しいキー(v3)を適用
 update_mode = st.sidebar.radio(
     "取り込み方法を選択",
     options=["現リストに追加", "現リストと入れ替え"],
     index=0,
-    key="input_update_mode_v2",
+    key="input_update_mode_v3",
     help="【現リストに追加】: 重複する名前がある場合は上書き追加します。\n【現リストと入れ替え】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
 )
 
