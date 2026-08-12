@@ -65,6 +65,8 @@ if "patients_data" not in st.session_state:
     st.session_state.patients_data = None
 if "filter_unhandled" not in st.session_state:
     st.session_state.filter_unhandled = False
+if "layout_option" not in st.session_state:
+    st.session_state.layout_option = "左右並べ（PC・大画面向け）"
 # ---------------------------------------------------------
 # 住所から緯度・経度を取得する関数 (ジオコーディング)
 # ---------------------------------------------------------
@@ -655,32 +657,36 @@ def create_pdf_report(df_alert_patients, created_time):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-# タイトルとラジオボタンの隙間を狭く（2センチ程度）にするためのインラインフレックス調整
+# タイトルとラジオボタンを完全に同じ行に近づけて配置するHTML+CSSブロック
 st.markdown("""
 <style>
-.custom-header-wrapper {
+.inline-header-container {
     display: flex;
     align-items: center;
-    gap: 20px;
-    margin-bottom: 0rem;
+    gap: 15px;
+    margin-bottom: -15px;
 }
-.custom-header-wrapper h3 {
+.inline-header-container h3 {
     margin: 0 !important;
     padding: 0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-header_col, style_col = st.columns([1.8, 1])
-with header_col:
-    st.markdown("### 2. 患者照合結果 & マップ可視化")
-with style_col:
-    layout_option = st.radio(
-        "表示スタイル", 
-        ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
-        horizontal=True,
-        label_visibility="collapsed"
-    )
+# Streamlitのラジオボタンの選択状態をセッションで保持して処理
+layout_option = st.radio(
+    "表示スタイル", 
+    ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="layout_option_radio"
+)
+
+st.markdown(f"""
+<div class="inline-header-container">
+    <h3>2. 患者照合結果 & マップ可視化</h3>
+</div>
+""", unsafe_allow_html=True)
 
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 if len(df_alert_all) > 0:
