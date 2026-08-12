@@ -51,6 +51,7 @@ st.markdown("""
 
 # 🔄 5分（300,000ミリ秒）ごとに画面を自動リロード
 st_autorefresh(interval=300000, key="data_auto_refresh")
+
 st.title("⚡ 停電アラート")
 st.caption("リアルタイムの停電情報と患者リストを照合し、優先度自動トリアージとナビ連携で初動対応を支援します。")
 
@@ -219,7 +220,7 @@ def load_template_file():
         output.seek(0)
         return output.getvalue(), "患者リスト_登録フォーマット.xlsx"
 
-# 初期データのロード (ジッター精度最適化: -0.00015〜0.00015 ≈ 約10〜30メートル幅)
+# 初期データのロード (ジッター精度最適化)
 if st.session_state.patients_data is None:
     initial_df = pd.DataFrame(generate_50_kagawa_patients())
     lats, lons = [], []
@@ -238,6 +239,14 @@ if st.session_state.patients_data is None:
 # 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
+
+# ① 情報取得モード切り替え（動作設定の直下に配置）
+mode = st.sidebar.radio(
+    "情報取得モード", 
+    options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
+    key="input_fetch_mode_v3"
+)
+
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松市サンポート2番1号",
@@ -245,25 +254,36 @@ current_location_addr = st.sidebar.text_input(
     help="マップ上に拠点ピン(青)として表示され、ナビ起動時の標準出発地として使用されます"
 )
 
-staff1_location_addr = st.sidebar.text_input(
-    "🏃 スタッフ1の現在地",
-    value="",
-    placeholder="例: 高松市瓦町1丁目",
-    key="input_staff1_location_v1",
-    help="マップ上にスタッフ1のピン(橙)として表示されます"
-)
-staff2_location_addr = st.sidebar.text_input(
-    "🏃 スタッフ2の現在地",
-    value="",
-    placeholder="例: 高松市栗林町2丁目",
-    key="input_staff2_location_v1",
-    help="マップ上にスタッフ2のピン(紫)として表示されます"
-)
-mode = st.sidebar.radio(
-    "情報取得モード", 
-    options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
-    key="input_fetch_mode_v3"
-)
+# ② スタッフ1, 2の入力欄とON/OFFスライドスイッチの配置
+st.sidebar.markdown("---")
+st.sidebar.subheader("🏃 スタッフ現在地設定")
+
+col_s1_text, col_s1_toggle = st.sidebar.columns([3, 1])
+with col_s1_text:
+    staff1_location_addr = st.text_input(
+        "スタッフ1の現在地",
+        value="",
+        placeholder="例: 高松市瓦町1丁目",
+        key="input_staff1_location_v1",
+        help="マップ上にスタッフ1のピン(橙)として表示されます"
+    )
+with col_s1_toggle:
+    st.write(" ")  # 位置調整用の余白
+    staff1_show_pin = st.toggle("表示", value=True, key="toggle_staff1_pin")
+
+col_s2_text, col_s2_toggle = st.sidebar.columns([3, 1])
+with col_s2_text:
+    staff2_location_addr = st.text_input(
+        "スタッフ2の現在地",
+        value="",
+        placeholder="例: 高松市栗林町2丁目",
+        key="input_staff2_location_v1",
+        help="マップ上にスタッフ2のピン(紫)として表示されます"
+    )
+with col_s2_toggle:
+    st.write(" ")  # 位置調整用の余白
+    staff2_show_pin = st.toggle("表示", value=True, key="toggle_staff2_pin")
+
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
 template_bytes, template_filename = load_template_file()
@@ -287,7 +307,7 @@ with col_btn1:
 with col_btn2:
     btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
 
-# データ更新処理 (ジッター精度最適化)
+# データ更新処理
 if btn_update:
     if uploaded_file is not None:
         try:
@@ -479,14 +499,13 @@ df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠�
 df_result = df_result.sort_values(
     by=["risk_sort", "triage_score"], ascending=[True, False]
 ).drop(columns=["risk_sort"])
-
 df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
-# 5. 地図描画関数 (自動ジャンプ・ズーム対応)
+# 5. 地図描画関数 (ON/OFFスライドフラグ受け取りに対応)
 # ---------------------------------------------------------
-def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None):
+def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True):
     if target_only:
         display_df = df[(df["停電リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
     else:
@@ -526,8 +545,8 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([home_lat, home_lon])
 
-    # 🟠 スタッフ1ピン
-    if staff1_address and staff1_address.strip() != "":
+    # 🟠 スタッフ1ピン（ONの時のみ描画）
+    if show_staff1 and staff1_address and staff1_address.strip() != "":
         s1_lat, s1_lon = geocode_address(staff1_address)
         s1_popup = f"""
         <div style='font-size:12px; width:180px;'>
@@ -543,8 +562,8 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         ).add_to(m)
         bounds_points.append([s1_lat, s1_lon])
 
-    # 🟣 スタッフ2ピン
-    if staff2_address and staff2_address.strip() != "":
+    # 🟣 スタッフ2ピン（ONの時のみ描画）
+    if show_staff2 and staff2_address and staff2_address.strip() != "":
         s2_lat, s2_lon = geocode_address(staff2_address)
         s2_popup = f"""
         <div style='font-size:12px; width:180px;'>
@@ -601,7 +620,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
             icon=folium.Icon(color=color, icon=icon_type, prefix="fa")
         )
         
-        # 選択された特定患者の場合はクラスター化せずマップ上に直に配置してポップアップを開く
         if target_patient is not None and row["ID"] == target_patient["ID"]:
             marker.add_to(m)
         else:
@@ -609,7 +627,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
             
         bounds_points.append([row["lat"], row["lon"]])
         
-    # 特定選択がない場合のみ、全ピンが入るようにFit Bounds処理を実施
     if target_patient is None:
         if len(bounds_points) > 1:
             min_lat = min(p[0] for p in bounds_points)
@@ -620,7 +637,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         elif len(bounds_points) == 1:
             m.location = bounds_points[0]
             m.zoom_start = 16
-
     return m
 
 # ---------------------------------------------------------
@@ -717,7 +733,9 @@ if len(df_alert_all) > 0:
             target_only=True, 
             home_address=current_location_addr,
             staff1_address=staff1_location_addr,
-            staff2_address=staff2_location_addr
+            staff2_address=staff2_location_addr,
+            show_staff1=staff1_show_pin,
+            show_staff2=staff2_show_pin
         )
         html_data = m_target_dl._repr_html_()
         st.download_button(
@@ -805,7 +823,9 @@ if layout_option == "左右並べ（PC・大画面向け）":
             home_address=current_location_addr,
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id
+            selected_patient_id=selected_patient_id,
+            show_staff1=staff1_show_pin,
+            show_staff2=staff2_show_pin
         )
         st_folium(m, width="100%", height=450, key="map_pc")
 else:
@@ -828,7 +848,9 @@ else:
             home_address=current_location_addr,
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id
+            selected_patient_id=selected_patient_id,
+            show_staff1=staff1_show_pin,
+            show_staff2=staff2_show_pin
         )
         st_folium(m, width="100%", height=450, key="map_tab_all")
     with tab3:
@@ -839,7 +861,9 @@ else:
             home_address=current_location_addr,
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id
+            selected_patient_id=selected_patient_id,
+            show_staff1=staff1_show_pin,
+            show_staff2=staff2_show_pin
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 
@@ -878,11 +902,14 @@ if st.button("📧 対象患者のアラート通知を一括送信"):
             st.code(f"""
 件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様 / トリアージ: {row['トリアージ']}）
 宛先: {target_email} ({row['担当医']}御中)
+
 {row['担当医']} 先生
+
 {row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
 ・トリアージ緊急度: {row['トリアージ']}
 ・使用装置: {row['使用装置']} (バッテリ: {row['バッテリ']})
 ・作成日時: {created_time_str}
+
 有事の初動対応および安否・医療機器の動作確認をお願いいたします。
             """, language="text")
         st.success(f"✅ {len(df_visit_target)} 件の通知メッセージを作成・送信処理（デモ）しました。")
