@@ -257,14 +257,19 @@ if st.session_state.patients_data is None:
 # ---------------------------------------------------------
 st.sidebar.header("⚙️ 動作設定")
 
-# 現住所のデフォルト値を「高松市サンポート2番1号」に変更
+# 【強力更新】新しいキーを設定して既存キャッシュを完全に上書き
 current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）", 
     value="高松市サンポート2番1号",
+    key="input_current_location_v3",
     help="マップ上に現在地/拠点ピンとして表示され、ナビ起動時の出発地としても使用されます"
 )
 
-mode = st.sidebar.radio("情報取得モード", ["仮想シミュレーションモード", "リアルタイムWeb取得モード"])
+mode = st.sidebar.radio(
+    "情報取得モード", 
+    options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
+    key="input_fetch_mode_v3"
+)
 
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
@@ -278,17 +283,30 @@ st.sidebar.download_button(
     use_container_width=True
 )
 
-# 選択肢の文言を変更：「現リストに追加」「現リストと入れ替え」
+# 【強力更新】選択肢を「現リストと入れ替え」に刷新し、新しいキー(v3)を適用
 update_mode = st.sidebar.radio(
     "取り込み方法を選択",
     options=["現リストに追加", "現リストと入れ替え"],
     index=0,
+    key="input_update_mode_v3",
     help="【現リストに追加】: 重複する名前がある場合は上書き追加します。\n【現リストと入れ替え】: 前のデータを全て削除し、添付ファイルのみでリストを新規作成します。"
 )
 
 uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
 
-if st.sidebar.button("データ更新", type="primary", use_container_width=True):
+# ボタンを横並びに配置（1:1の比率）
+col_btn1, col_btn2 = st.sidebar.columns([1, 1])
+
+with col_btn1:
+    btn_update = st.button("データ更新", type="primary", use_container_width=True)
+
+with col_btn2:
+    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
+
+# ---------------------------------------------------------
+# データ更新ボタンが押された時の処理
+# ---------------------------------------------------------
+if btn_update:
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith(".csv"):
@@ -330,8 +348,30 @@ if st.sidebar.button("データ更新", type="primary", use_container_width=True
     else:
         st.sidebar.warning("ファイルを選択してから「データ更新」を押してください。")
 
-st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
+# ---------------------------------------------------------
+# 初期データに戻すボタンが押された時の処理
+# ---------------------------------------------------------
+if btn_reset:
+    with st.spinner("デフォルトの初期患者リスト（50名）にリセット中..."):
+        initial_df = pd.DataFrame(generate_50_kagawa_patients())
+        lats, lons = [], []
+        random.seed(123)
+        for _, r in initial_df.iterrows():
+            base_lat, base_lon = geocode_address(r["住所"])
+            jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
+            jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
+            lats.append(jitter_lat)
+            lons.append(jitter_lon)
+        initial_df["lat"] = lats
+        initial_df["lon"] = lons
+        
+        # セッション状態および対応ステータスを初期化
+        st.session_state.patients_data = initial_df
+        st.session_state.patient_status = {}
+        st.sidebar.info("🔄 初期デフォルトの患者リストにリセットしました！")
+        st.rerun()
 
+st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
 # ---------------------------------------------------------
 # 4. 停電データの照合準備 & 優先度(トリアージ)ソート
 # ---------------------------------------------------------
