@@ -378,7 +378,7 @@ if mode == "仮想シミュレーションモード":
     col_input, col_btn1, col_btn2, _ = st.columns([4, 2, 1.5, 4.5])
     with col_input:
         sim_input = st.text_input(
-            "停電が発生したと想定する地域（香川県内の市町村や町名）を入力", 
+            "停電が発生したと想定する地域（市町村や町名）を入力", 
             value=",".join(st.session_state.sim_areas),
             placeholder="例: 宮脇町, 木太町, 栗林町1丁目"
         )
@@ -690,14 +690,14 @@ def create_pdf_report(df_alert_patients, created_time):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-header_col, style_col = st.columns([1, 1])
+header_col, style_col = st.columns([1.5, 1])
 with header_col:
     st.subheader("2. 患者照合結果 & マップ可視化")
 with style_col:
     layout_option = st.radio(
         "表示スタイル", 
         ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
-        horizontal=False,
+        horizontal=True,
         label_visibility="collapsed"
     )
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
@@ -708,7 +708,6 @@ if len(df_alert_all) > 0:
     
     st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
     
-    # 3つの列（PDFダウンロード、HTMLダウンロード、巡回ルート検索ボタン）を横並びで配置（ボタンを穏やかなブルー系に変更）
     col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     
     with col_dl1:
@@ -756,7 +755,6 @@ if len(df_alert_all) > 0:
                 multi_nav_url = ""
 
             if multi_nav_url:
-                # 穏やかなブルーグレー / スチールブルー系のカラー（background: #5b7994）に変更
                 st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#5b7994; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
                 st.caption("※Googleマップナビが別タブで起動します")
 
