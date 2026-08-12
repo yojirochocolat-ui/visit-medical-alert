@@ -252,7 +252,6 @@ if st.session_state.patients_data is None:
     initial_df["lon"] = lons
     st.session_state.patients_data = initial_df
 
-
 # ---------------------------------------------------------
 # 3. サイドバー設定 & データ読み込み
 # ---------------------------------------------------------
@@ -295,7 +294,19 @@ update_mode = st.sidebar.radio(
 
 uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
 
-if st.sidebar.button("データ更新", type="primary", use_container_width=True):
+# ボタンを横並びに配置（1:1の比率）
+col_btn1, col_btn2 = st.sidebar.columns([1, 1])
+
+with col_btn1:
+    btn_update = st.button("データ更新", type="primary", use_container_width=True)
+
+with col_btn2:
+    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
+
+# ---------------------------------------------------------
+# データ更新ボタンが押された時の処理
+# ---------------------------------------------------------
+if btn_update:
     if uploaded_file is not None:
         try:
             if uploaded_file.name.endswith(".csv"):
@@ -337,8 +348,30 @@ if st.sidebar.button("データ更新", type="primary", use_container_width=True
     else:
         st.sidebar.warning("ファイルを選択してから「データ更新」を押してください。")
 
-st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
+# ---------------------------------------------------------
+# 初期データに戻すボタンが押された時の処理
+# ---------------------------------------------------------
+if btn_reset:
+    with st.spinner("デフォルトの初期患者リスト（50名）にリセット中..."):
+        initial_df = pd.DataFrame(generate_50_kagawa_patients())
+        lats, lons = [], []
+        random.seed(123)
+        for _, r in initial_df.iterrows():
+            base_lat, base_lon = geocode_address(r["住所"])
+            jitter_lat = base_lat + random.uniform(-0.0012, 0.0012)
+            jitter_lon = base_lon + random.uniform(-0.0012, 0.0012)
+            lats.append(jitter_lat)
+            lons.append(jitter_lon)
+        initial_df["lat"] = lats
+        initial_df["lon"] = lons
+        
+        # セッション状態および対応ステータスを初期化
+        st.session_state.patients_data = initial_df
+        st.session_state.patient_status = {}
+        st.sidebar.info("🔄 初期デフォルトの患者リストにリセットしました！")
+        st.rerun()
 
+st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
 # ---------------------------------------------------------
 # 4. 停電データの照合準備 & 優先度(トリアージ)ソート
 # ---------------------------------------------------------
