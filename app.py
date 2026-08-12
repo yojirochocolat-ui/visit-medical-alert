@@ -676,11 +676,11 @@ def create_pdf_report(df_alert_patients, created_time):
         ])
     t = Table(table_data, colWidths=[25, 45, 45, 45, 65, 30, 45, 65, 165])
     t.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#d9534f')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a6b82')),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')])
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f4f7f9')])
     ]))
     story.append(t)
     doc.build(story)
@@ -708,7 +708,7 @@ if len(df_alert_all) > 0:
     
     st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
     
-    # 3つの列（PDFダウンロード、HTMLダウンロード、巡回ルート検索ボタン）を横並びで配置
+    # 3つの列（PDFダウンロード、HTMLダウンロード、巡回ルート検索ボタン）を横並びで配置（ボタンを穏やかなブルー系に変更）
     col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     
     with col_dl1:
@@ -756,7 +756,8 @@ if len(df_alert_all) > 0:
                 multi_nav_url = ""
 
             if multi_nav_url:
-                st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#f0ad4e; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
+                # 穏やかなブルーグレー / スチールブルー系のカラー（background: #5b7994）に変更
+                st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#5b7994; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
                 st.caption("※Googleマップナビが別タブで起動します")
 
 else:
