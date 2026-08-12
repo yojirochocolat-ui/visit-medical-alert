@@ -745,6 +745,27 @@ if len(df_alert_all) > 0:
             mime="text/html",
             use_container_width=True
         )
+
+    # 🚗 複数人巡回ルートの外部連携ボタンの追加
+    if len(df_visit_target) > 0:
+        st.markdown("##### 🚗 複数人巡回ルートの外部連携")
+        target_for_route = df_visit_target.sort_values(by="triage_score", ascending=False)
+        addresses = target_for_route["住所"].tolist()
+        origin = current_location_addr
+        
+        if len(addresses) > 1:
+            destination = addresses[-1]
+            waypoints = "|".join(addresses[:-1])
+            multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(destination)}&waypoints={urllib.parse.quote(waypoints)}"
+        elif len(addresses) == 1:
+            multi_nav_url = f"https://www.google.com/maps/dir/?api=1&origin={urllib.parse.quote(origin)}&destination={urllib.parse.quote(addresses[0])}"
+        else:
+            multi_nav_url = ""
+
+        if multi_nav_url:
+            st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:inline-block; background:#f0ad4e; color:white; padding:8px 15px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px;">🚗 停電対象者（{len(addresses)}名）を高優先順に経由するGoogleマップナビを開く</a>', unsafe_allow_html=True)
+            st.caption("※Googleマップの仕様上、最大9箇所までの経由地を一度に設定してルート案内を起動できます。")
+
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
