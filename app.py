@@ -773,16 +773,15 @@ column_config = {
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
-# --- ▼ 修正箇所：スタッフの表示状態に応じて凡例を動的に切り替える ---
+# --- 修正版：トグルがONかつ住所が入力されている場合のみ凡例に追加 ---
 legend_items = ["🔵 拠点"]
-if staff1_show_pin and staff1_location_addr.strip():
+if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip():
     legend_items.append("🟠 スタッフ1")
-if staff2_show_pin and staff2_location_addr.strip():
+if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip():
     legend_items.append("🟣 スタッフ2")
 legend_items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
 legend_str = " / ".join(legend_items)
-map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>({legend_str})</span>"
-# --- ▲ 修正箇所ここまで ---
+map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>( {legend_str} )</span>"
 
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
