@@ -773,16 +773,23 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-# --- スタッフの表示状態に応じた凡例の動的生成 ---
+# サイドバー等のトグル変数が定義されたあとに以下を配置
+# (※変数名がお使いの環境のトグル変数名になっているかご確認ください)
+
 staff_legends = []
-if 'staff1_show_pin' in locals() and staff1_show_pin:
+
+# 例として一般的な変数名で判定しています。実際の変数名に合わせてください
+if 'staff1_show_pin' in globals() and staff1_show_pin:
     staff_legends.append("🟠 スタッフ1")
-if 'staff2_show_pin' in locals() and staff2_show_pin:
+elif 'show_staff1' in globals() and show_staff1:
+    staff_legends.append("🟠 スタッフ1")
+
+if 'staff2_show_pin' in globals() and staff2_show_pin:
+    staff_legends.append("🟣 スタッフ2")
+elif 'show_staff2' in globals() and show_staff2:
     staff_legends.append("🟣 スタッフ2")
 
 staff_legend_str = (" / " + " / ".join(staff_legends)) if staff_legends else ""
-map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点{staff_legend_str} / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
-
 map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点{staff_legend_str} / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
