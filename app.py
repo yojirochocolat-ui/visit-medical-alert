@@ -773,20 +773,7 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-# 🔧 スタッフ表示トグルの状態に応じて凡例を動的に組み立てる
-legend_parts = ["🔵 拠点"]
-if staff1_show_pin:
-    legend_parts.append("🟠 スタッフ1")
-if staff2_show_pin:
-    legend_parts.append("🟣 スタッフ2")
-legend_parts += ["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"]
-legend_parts = ["🔵 拠点"]
-if staff1_show_pin:
-    legend_parts.append("🟠 スタッフ1")
-if staff2_show_pin:
-    legend_parts.append("🟣 スタッフ2")
-legend_parts += ["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"]
-map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>({' / '.join(legend_parts)})</span>"
+map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
@@ -869,6 +856,7 @@ if editor_key in st.session_state and st.session_state[editor_key].get("edited_r
             
     if updated_flag:
         st.rerun()
+# ---------------------------------------------------------
 # 8. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
 st.markdown("---")
