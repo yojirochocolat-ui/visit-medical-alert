@@ -669,7 +669,6 @@ with col_radio:
         label_visibility="collapsed",
         key="layout_option_radio"
     )
-
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
@@ -773,24 +772,17 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-# サイドバー等のトグル変数が定義されたあとに以下を配置
-# (※変数名がお使いの環境のトグル変数名になっているかご確認ください)
 
+# --- スタッフの表示状態に応じた凡例の動的生成 ---
 staff_legends = []
-
-# 例として一般的な変数名で判定しています。実際の変数名に合わせてください
-if 'staff1_show_pin' in globals() and staff1_show_pin:
+if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip() != "":
     staff_legends.append("🟠 スタッフ1")
-elif 'show_staff1' in globals() and show_staff1:
-    staff_legends.append("🟠 スタッフ1")
-
-if 'staff2_show_pin' in globals() and staff2_show_pin:
-    staff_legends.append("🟣 スタッフ2")
-elif 'show_staff2' in globals() and show_staff2:
+if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip() != "":
     staff_legends.append("🟣 スタッフ2")
 
 staff_legend_str = (" / " + " / ".join(staff_legends)) if staff_legends else ""
 map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点{staff_legend_str} / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
+
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
@@ -862,6 +854,7 @@ if editor_key in st.session_state and st.session_state[editor_key].get("edited_r
         if p_id not in st.session_state.patient_status:
             st.session_state.patient_status[p_id] = {}
         
+        , 
         if "対応ステータス" in changes:
             st.session_state.patient_status[p_id]["status"] = changes["対応ステータス"]
             st.session_state.patient_status[p_id]["updated_at"] = datetime.now(JST).strftime("%H:%M")
