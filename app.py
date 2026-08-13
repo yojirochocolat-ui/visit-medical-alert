@@ -773,7 +773,17 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
+# スタッフの表示状態に応じて凡例の文字列を動的に組み立てる
+staff_legends = []
+if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip() != "":
+    staff_legends.append("🟠 スタッフ1")
+if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip() != "":
+    staff_legends.append("🟣 スタッフ2")
+
+# スタッフの凡例が存在する場合のみ「 / 」で結合して追加
+staff_legend_str = (" / " + " / ".join(staff_legends)) if staff_legends else ""
+
+map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点{staff_legend_str} / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
