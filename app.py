@@ -669,7 +669,6 @@ with col_radio:
         label_visibility="collapsed",
         key="layout_option_radio"
     )
-
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
@@ -773,7 +772,18 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
-map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
+
+# --- ▼ 修正箇所：スタッフの表示状態に応じて凡例を動的に切り替える ---
+legend_items = ["🔵 拠点"]
+if staff1_show_pin and staff1_location_addr.strip():
+    legend_items.append("🟠 スタッフ1")
+if staff2_show_pin and staff2_location_addr.strip():
+    legend_items.append("🟣 スタッフ2")
+legend_items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
+legend_str = " / ".join(legend_items)
+map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>({legend_str})</span>"
+# --- ▲ 修正箇所ここまで ---
+
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
@@ -836,26 +846,6 @@ else:
             show_staff2=staff2_show_pin
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
-editor_key = "table_editor" if layout_option == "左右並べ（PC・大画面向け）" else "table_editor_tab"
-if editor_key in st.session_state and st.session_state[editor_key].get("edited_rows"):
-    edited_rows = st.session_state[editor_key]["edited_rows"]
-    updated_flag = False
-    for row_idx, changes in edited_rows.items():
-        p_id = display_target_df.iloc[row_idx]["ID"]
-        if p_id not in st.session_state.patient_status:
-            st.session_state.patient_status[p_id] = {}
-        
-        if "対応ステータス" in changes:
-            st.session_state.patient_status[p_id]["status"] = changes["対応ステータス"]
-            st.session_state.patient_status[p_id]["updated_at"] = datetime.now(JST).strftime("%H:%M")
-            updated_flag = True
-        
-        if "停電リスク" in changes:
-            st.session_state.patient_status[p_id]["override_outage"] = changes["停電リスク"]
-            updated_flag = True
-            
-    if updated_flag:
-        st.rerun()
 # ---------------------------------------------------------
 # 8. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
