@@ -657,7 +657,6 @@ def create_pdf_report(df_alert_patients, created_time):
 # ---------------------------------------------------------
 # 7. 画面表示エリア
 # ---------------------------------------------------------
-# タイトル行とレイアウト切り替えラジオボタンを綺麗に同じ行に並べる
 col_title, col_radio = st.columns([5, 5])
 with col_title:
     st.subheader("2. 患者照合結果 & マップ可視化")
@@ -670,6 +669,7 @@ with col_radio:
         key="layout_option_radio"
     )
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
+
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
     confirmed_cnt = len(df_alert_all[df_alert_all["対応ステータス"] == "安否確認済（安全）"])
@@ -725,6 +725,7 @@ if len(df_alert_all) > 0:
                 st.caption("※Googleマップナビが別タブで起動します")
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
+
 # --- 絞り込み & 自動ジャンプ患者選択エリア ---
 filter_col1, filter_col2 = st.columns([3, 3])
 with filter_col1:
@@ -736,6 +737,7 @@ if only_unhandled:
     ]
 else:
     display_target_df = df_result.copy()
+
 patient_options = ["選択なし（全体表示）"] + [
     f"{r['ID']} | {r['患者名']} 様 ({r['トリアージ']} - {r['住所']})"
     for _, r in display_target_df.iterrows()
@@ -750,18 +752,11 @@ with filter_col2:
 selected_patient_id = None
 if selected_option != "選択なし（全体表示）":
     selected_patient_id = selected_option.split(" | ")[0]
+
 display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 column_config = {
-    "対応ステータス": st.column_config.SelectboxColumn(
-        "対応ステータス",
-        options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"],
-        required=True
-    ),
-    "停電リスク": st.column_config.SelectboxColumn(
-        "停電リスク",
-        options=["⚠️ 停電可能性あり", "🟢 正常"],
-        required=True
-    ),
+    "対応ステータス": st.column_config.SelectboxColumn("対応ステータス", options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], required=True),
+    "停電リスク": st.column_config.SelectboxColumn("停電リスク", options=["⚠️ 停電可能性あり", "🟢 正常"], required=True),
     "ID": st.column_config.TextColumn("ID", disabled=True),
     "トリアージ": st.column_config.TextColumn("トリアージ", disabled=True),
     "患者名": st.column_config.TextColumn("患者名", disabled=True),
@@ -773,80 +768,37 @@ column_config = {
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
-# --- ▼ 修正箇所：トグルの状態（st.session_state または変数）を確実に判定して凡例を構築 ---
-s1_visible = st.session_state.get("toggle_staff1_pin", True)
-s2_visible = st.session_state.get("toggle_staff2_pin", True)
+# 凡例を動的生成するヘルパー関数
+def get_map_legend_title():
+    items = ["🔵 拠点"]
+    if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip():
+        items.append("🟠 スタッフ1")
+    if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip():
+        items.append("🟣 スタッフ2")
+    items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
+    return f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>( {' / '.join(items)} )</span>"
 
-legend_items = ["🔵 拠点"]
-if s1_visible and staff1_location_addr and staff1_location_addr.strip():
-    legend_items.append("🟠 スタッフ1")
-if s2_visible and staff2_location_addr and staff2_location_addr.strip():
-    legend_items.append("🟣 スタッフ2")
-legend_items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
-legend_str = " / ".join(legend_items)
-map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>( {legend_str} )</span>"
-# --- ▲ 修正箇所ここまで ---
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
         st.markdown(list_title_html, unsafe_allow_html=True)
-        edited_df = st.data_editor(
-            display_target_df[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            height=450,
-            hide_index=True,
-            key="table_editor"
-        )
+        edited_df = st.data_editor(display_target_df[display_cols], column_config=column_config, use_container_width=True, height=450, hide_index=True, key="table_editor")
     with col2:
-        st.markdown(map_legend_title, unsafe_allow_html=True)
-        m = build_map(
-            display_target_df, 
-            home_address=current_location_addr,
-            staff1_address=staff1_location_addr,
-            staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id,
-            show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
-        )
+        st.markdown(get_map_legend_title(), unsafe_allow_html=True)
+        m = build_map(display_target_df, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
         st_folium(m, width="100%", height=450, key="map_pc")
 else:
     tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 訪問対象者のみ拡大マップ"])
     with tab1:
         st.markdown(list_title_html, unsafe_allow_html=True)
-        edited_df = st.data_editor(
-            display_target_df[display_cols],
-            column_config=column_config,
-            use_container_width=True,
-            height=450,
-            hide_index=True,
-            key="table_editor_tab"
-        )
+        edited_df = st.data_editor(display_target_df[display_cols], column_config=column_config, use_container_width=True, height=450, hide_index=True, key="table_editor_tab")
     with tab2:
-        st.markdown(map_legend_title, unsafe_allow_html=True)
-        m = build_map(
-            display_target_df, 
-            target_only=False, 
-            home_address=current_location_addr,
-            staff1_address=staff1_location_addr,
-            staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id,
-            show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
-        )
+        st.markdown(get_map_legend_title(), unsafe_allow_html=True)
+        m = build_map(display_target_df, target_only=False, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
         st_folium(m, width="100%", height=450, key="map_tab_all")
     with tab3:
-        st.markdown(map_legend_title, unsafe_allow_html=True)
-        m_target = build_map(
-            display_target_df, 
-            target_only=True, 
-            home_address=current_location_addr,
-            staff1_address=staff1_location_addr,
-            staff2_address=staff2_location_addr,
-            selected_patient_id=selected_patient_id,
-            show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
-        )
+        st.markdown(get_map_legend_title(), unsafe_allow_html=True)
+        m_target = build_map(display_target_df, target_only=True, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 # ---------------------------------------------------------
 # 8. アナウンス通知機能（デモ）
