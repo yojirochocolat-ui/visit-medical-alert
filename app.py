@@ -695,8 +695,8 @@ if len(df_alert_all) > 0:
             home_address=current_location_addr,
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
-            show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
+            show_staff1=st.session_state.get("toggle_staff1_pin", True),
+            show_staff2=st.session_state.get("toggle_staff2_pin", True)
         )
         html_data = m_target_dl._repr_html_()
         st.download_button(
@@ -768,13 +768,18 @@ column_config = {
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
-# 凡例を動的生成するヘルパー関数
+# 凡例の動的生成（session_stateを直接参照）
 def get_map_legend_title():
     items = ["🔵 拠点"]
-    if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip():
+    # ここで各トグルの現在のON/OFF状態を判定
+    is_s1_on = st.session_state.get("toggle_staff1_pin", True)
+    is_s2_on = st.session_state.get("toggle_staff2_pin", True)
+    
+    if is_s1_on and staff1_location_addr and staff1_location_addr.strip():
         items.append("🟠 スタッフ1")
-    if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip():
+    if is_s2_on and staff2_location_addr and staff2_location_addr.strip():
         items.append("🟣 スタッフ2")
+        
     items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
     return f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>( {' / '.join(items)} )</span>"
 
@@ -785,7 +790,15 @@ if layout_option == "左右並べ（PC・大画面向け）":
         edited_df = st.data_editor(display_target_df[display_cols], column_config=column_config, use_container_width=True, height=450, hide_index=True, key="table_editor")
     with col2:
         st.markdown(get_map_legend_title(), unsafe_allow_html=True)
-        m = build_map(display_target_df, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
+        m = build_map(
+            display_target_df, 
+            home_address=current_location_addr, 
+            staff1_address=staff1_location_addr, 
+            staff2_address=staff2_location_addr, 
+            selected_patient_id=selected_patient_id, 
+            show_staff1=st.session_state.get("toggle_staff1_pin", True), 
+            show_staff2=st.session_state.get("toggle_staff2_pin", True)
+        )
         st_folium(m, width="100%", height=450, key="map_pc")
 else:
     tab1, tab2, tab3 = st.tabs(["📋 リスト表示", "🗺️ マップ表示(全体)", "⚠️ 訪問対象者のみ拡大マップ"])
@@ -794,11 +807,29 @@ else:
         edited_df = st.data_editor(display_target_df[display_cols], column_config=column_config, use_container_width=True, height=450, hide_index=True, key="table_editor_tab")
     with tab2:
         st.markdown(get_map_legend_title(), unsafe_allow_html=True)
-        m = build_map(display_target_df, target_only=False, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
+        m = build_map(
+            display_target_df, 
+            target_only=False, 
+            home_address=current_location_addr, 
+            staff1_address=staff1_location_addr, 
+            staff2_address=staff2_location_addr, 
+            selected_patient_id=selected_patient_id, 
+            show_staff1=st.session_state.get("toggle_staff1_pin", True), 
+            show_staff2=st.session_state.get("toggle_staff2_pin", True)
+        )
         st_folium(m, width="100%", height=450, key="map_tab_all")
     with tab3:
         st.markdown(get_map_legend_title(), unsafe_allow_html=True)
-        m_target = build_map(display_target_df, target_only=True, home_address=current_location_addr, staff1_address=staff1_location_addr, staff2_address=staff2_location_addr, selected_patient_id=selected_patient_id, show_staff1=staff1_show_pin, show_staff2=staff2_show_pin)
+        m_target = build_map(
+            display_target_df, 
+            target_only=True, 
+            home_address=current_location_addr, 
+            staff1_address=staff1_location_addr, 
+            staff2_address=staff2_location_addr, 
+            selected_patient_id=selected_patient_id, 
+            show_staff1=st.session_state.get("toggle_staff1_pin", True), 
+            show_staff2=st.session_state.get("toggle_staff2_pin", True)
+        )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 # ---------------------------------------------------------
 # 8. アナウンス通知機能（デモ）
