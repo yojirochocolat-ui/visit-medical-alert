@@ -831,7 +831,6 @@ else:
             show_staff2=st.session_state.get("toggle_staff2_pin", True)
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
-# ---------------------------------------------------------
 # 8. アナウンス通知機能（デモ）
 # ---------------------------------------------------------
 st.markdown("---")
