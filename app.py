@@ -780,6 +780,12 @@ if staff1_show_pin:
 if staff2_show_pin:
     legend_parts.append("🟣 スタッフ2")
 legend_parts += ["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"]
+legend_parts = ["🔵 拠点"]
+if staff1_show_pin:
+    legend_parts.append("🟠 スタッフ1")
+if staff2_show_pin:
+    legend_parts.append("🟣 スタッフ2")
+legend_parts += ["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"]
 map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>({' / '.join(legend_parts)})</span>"
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
