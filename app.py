@@ -773,16 +773,19 @@ column_config = {
 }
 list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
 
-# --- 修正版：トグルがONかつ住所が入力されている場合のみ凡例に追加 ---
+# --- ▼ 修正箇所：トグルの状態（st.session_state または変数）を確実に判定して凡例を構築 ---
+s1_visible = st.session_state.get("toggle_staff1_pin", True)
+s2_visible = st.session_state.get("toggle_staff2_pin", True)
+
 legend_items = ["🔵 拠点"]
-if staff1_show_pin and staff1_location_addr and staff1_location_addr.strip():
+if s1_visible and staff1_location_addr and staff1_location_addr.strip():
     legend_items.append("🟠 スタッフ1")
-if staff2_show_pin and staff2_location_addr and staff2_location_addr.strip():
+if s2_visible and staff2_location_addr and staff2_location_addr.strip():
     legend_items.append("🟣 スタッフ2")
 legend_items.extend(["🔴 停電未対応", "⚪ 確認済", "🟢 停電なし"])
 legend_str = " / ".join(legend_items)
 map_legend_title = f"#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>( {legend_str} )</span>"
-
+# --- ▲ 修正箇所ここまで ---
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
     with col1:
