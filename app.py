@@ -27,6 +27,24 @@ JST = timezone(timedelta(hours=9))
 # ページ基本設定 & カスタムCSS
 # ---------------------------------------------------------
 st.set_page_config(page_title="停電アラート", layout="wide")
+
+import streamlit as st
+
+st.set_page_config(page_title="停電アラート", layout="wide")
+
+# --- 右上のメニュー（GitHubや編集アイコン）を非表示にするCSS ---
+st.markdown(
+    """
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 st.markdown("""
     <style>
         .block-container {
