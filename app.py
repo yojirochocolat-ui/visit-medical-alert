@@ -32,19 +32,19 @@ import streamlit as st
 
 st.set_page_config(page_title="停電アラート", layout="wide")
 
-# --- 右上のメニュー（GitHubや編集アイコン）を非表示にするCSS ---
+# --- 右上のメニュー（GitHubや編集アイコン）を非表示にするCSS ---ここから
 st.markdown(
     """
     <style>
-    /* 編集アイコン（鉛筆）とGitHubアイコンのみを非表示にする */
-    button[title="Edit this app"], 
-    a[title="View source on GitHub"] {
+    /* 編集（鉛筆）ボタンとGitHubアイコンを非表示にする */
+    [data-testid="stToolbar"] {
         display: none !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
+# --- 右上のメニュー（GitHubや編集アイコン）を非表示にするCSS ---ここまで
 
 
 st.markdown("""
