@@ -36,9 +36,10 @@ st.set_page_config(page_title="停電アラート", layout="wide")
 st.markdown(
     """
     <style>
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
+    /* 編集（鉛筆）ボタンとGitHubアイコンを非表示にする */
+    [data-testid="stToolbar"] {
+        display: none !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
