@@ -36,8 +36,9 @@ st.set_page_config(page_title="停電アラート", layout="wide")
 st.markdown(
     """
     <style>
-    /* 編集（鉛筆）ボタンとGitHubアイコンを非表示にする */
-    [data-testid="stToolbar"] {
+    /* 編集アイコン（鉛筆）とGitHubアイコンのみを非表示にする */
+    button[title="Edit this app"], 
+    a[title="View source on GitHub"] {
         display: none !important;
     }
     </style>
