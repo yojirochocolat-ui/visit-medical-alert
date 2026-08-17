@@ -1,4 +1,3 @@
-
 import io
 import os
 import glob
@@ -64,10 +63,10 @@ def init_session_state():
         "last_fetch_time": "未取得",
         "patient_status": {},
         "patients_data": None,
-        "filter_unhandled": False,
         "layout_option": "左右並べ（PC・大画面向け）",
         "realtime_outage_data": [],
         "auto_refresh_enabled": False,
+        "auto_filtered_once": False, # 自動絞り込み判定フラグ
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -140,13 +139,7 @@ def split_towns(raw_towns):
 
 
 def detect_column_map(headers):
-    """四国電力サイトの表記揺れに対応して列位置を推定する。"""
-    col_map = {
-        "city": None,
-        "town": None,
-        "reason": None,
-        "status": None,
-    }
+    col_map = {"city": None, "town": None, "reason": None, "status": None}
     for i, h in enumerate(headers):
         text = normalize_text(h)
         if any(k in text for k in ["市区町村", "市町村", "市町", "地区"]):
@@ -183,7 +176,6 @@ def parse_outage_table(table, pref_name, announced_at):
         reason = "-"
         status = "-"
 
-        # ヘッダから列位置が取れる場合
         if col_map["city"] is not None and col_map["city"] < len(cols):
             city = cols[col_map["city"]]
         if col_map["town"] is not None and col_map["town"] < len(cols):
@@ -193,8 +185,6 @@ def parse_outage_table(table, pref_name, announced_at):
         if col_map["status"] is not None and col_map["status"] < len(cols):
             status = cols[col_map["status"]]
 
-        # ヘッダ推定が外れた場合のフォールバック
-        # 想定例: 発生日時, 市区町村, 町名, 停電戸数, 停電理由, 対応状況
         if city == "-" or town == "-":
             if len(cols) >= 6:
                 city = cols[1]
@@ -215,7 +205,6 @@ def parse_outage_table(table, pref_name, announced_at):
                 city = cols[0]
                 town = cols[1]
 
-        # 県名が市区町村列に入ってしまうケースを補正
         if city == pref_name and town not in ["-", ""]:
             match = re.match(r"(.+?[市町村])\s*(.*)", town)
             if match:
@@ -446,6 +435,7 @@ if btn_update:
                     updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
                     st.session_state.patients_data = updated_df
                     st.sidebar.success("現リストにデータを追加・上書き更新しました！")
+                st.session_state.auto_filtered_once = False # 再判定のためリセット
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
@@ -457,6 +447,7 @@ if btn_reset:
         initial_df = pd.DataFrame(generate_50_kagawa_patients())
         st.session_state.patients_data = ensure_lat_lon(initial_df, seed=123)
         st.session_state.patient_status = {}
+        st.session_state.auto_filtered_once = False
         st.sidebar.info("🔄 初期デフォルトの患者リストにリセットしました！")
         st.rerun()
 
@@ -483,6 +474,7 @@ if mode == "仮想シミュレーションモード":
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.session_state.auto_filtered_once = False # シミュレーション実行時に自動絞り込みを再適用
             st.success("シミュレーションを実行・作成日時を更新しました！")
     with col_btn2:
         st.write(" ")
@@ -490,7 +482,7 @@ if mode == "仮想シミュレーションモード":
         if st.button("🔄 リセット", use_container_width=True):
             st.session_state.sim_areas = []
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.session_state.filter_unhandled = False
+            st.session_state.auto_filtered_once = False
             st.rerun()
 
     for area in st.session_state.sim_areas:
@@ -520,16 +512,17 @@ else:
                 fetched_data, fetch_errors = fetch_outage_info()
             st.session_state.realtime_outage_data = fetched_data
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.session_state.auto_filtered_once = False
             if fetch_errors:
                 st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
             st.rerun()
 
-    # 初回表示時または自動更新ON時のみ取得する。仮想モードでは裏で取得しない。
     if st.session_state.last_fetch_time == "未取得" or auto_refresh_enabled:
         with st.spinner("停電情報を取得中..."):
             fetched_data, fetch_errors = fetch_outage_info()
         st.session_state.realtime_outage_data = fetched_data
         st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+        st.session_state.auto_filtered_once = False
         if fetch_errors:
             st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
 
@@ -632,6 +625,11 @@ df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠�
 df_result = df_result.sort_values(by=["risk_sort", "triage_score"], ascending=[True, False]).drop(columns=["risk_sort"])
 df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
+
+# ★ 停電対象者がいて、まだ自動チェックが適用されていない場合は自動でONにする
+if len(df_visit_target) > 0 and not st.session_state.get("auto_filtered_once", False):
+    st.session_state["filter_unhandled"] = True
+    st.session_state["auto_filtered_once"] = True
 
 # ---------------------------------------------------------
 # 5. 地図描画関数
