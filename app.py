@@ -843,7 +843,10 @@ st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}*
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
     confirmed_cnt = len(df_alert_all[df_alert_all["対応ステータス"] == "安否確認済（安全）"])
-    st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
+    
+    col_msg, _ = st.columns([5, 5])
+    with col_msg:
+        st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
 
     col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     with col_dl1:
@@ -890,7 +893,9 @@ if len(df_alert_all) > 0:
                 st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#5b7994; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
                 st.caption("※Googleマップナビが別タブで起動します")
 else:
-    st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
+    col_msg, _ = st.columns([5, 5])
+    with col_msg:
+        st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
 # カラム比率を変更し、右側に空きスペースを作ることで幅を約1/2に調整
 filter_col1, filter_col2, _ = st.columns([2.5, 2.5, 5])
