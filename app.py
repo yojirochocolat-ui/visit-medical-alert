@@ -33,7 +33,7 @@ st.set_page_config(page_title="停電アラート", layout="wide")
 st.markdown("""
     <style>
         .block-container {
-            padding-top: 1rem !important;
+            padding-top: 2rem !important; /* 少し余白を広げて見切れを防ぐ */
             padding-bottom: 1rem !important;
         }
         [data-testid="stSidebarUserContent"] {
@@ -41,16 +41,23 @@ st.markdown("""
         }
         header {visibility: visible !important;}
         [data-testid="stHeader"] {display: block !important;}
-        [data-testid="stAppHeaderActionElements"] {display: none !important;}
+        [data-testid="stAppHeaderActionElements"] {display: none !important; }
         .stAppDeployButton {display: none !important;}
         div[data-testid="stDataFrame"] div[role="gridcell"] {
             white-space: normal !important;
             line-height: 1.25rem !important;
         }
+        /* タイトルの見切れ防止と余白確保 */
+        h1 {
+            overflow: visible !important;
+            line-height: 1.3 !important;
+            padding-top: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+        }
     </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ 停電アラート")
+st.title("💡 停電アラート")
 st.caption("リアルタイムの停電情報と患者リストを照合し、優先度自動トリアージとナビ連携で初動対応を支援します。")
 
 # ---------------------------------------------------------
