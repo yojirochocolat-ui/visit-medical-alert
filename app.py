@@ -570,7 +570,7 @@ else:
             }
         )
     else:
-        st.success(f"現在（{created_time_str} 取得）、四国版のWebサイト上に該当する停電情報はありません。")
+        st.success(f"現在（{created_time_str} 取得）、四国での停電情報はありません。")
 
 
 def check_outage(address, outage_list):
@@ -841,7 +841,7 @@ with col_radio:
         horizontal=True,
         label_visibility="collapsed",
         key="layout_option_radio",
-        help="画面レイアウトを「左右分割表示」か「タブ切り替え表示」に変更できます"
+        help="画面レイアウトをを変更します"
     )
 
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
@@ -879,7 +879,7 @@ if len(df_alert_all) > 0:
             file_name="訪問対象者_拡大マップ.html",
             mime="text/html",
             use_container_width=True,
-            help="オフライン環境でも閲覧可能なインタラクティブマップHTMLをダウンロードします"
+            help="オフライン環境でも閲覧可能なインタラクティブマップをダウンロードします"
         )
     with col_dl3:
         if len(df_visit_target) > 0:
@@ -922,7 +922,7 @@ with filter_col2:
         "🔍 特定患者にズーム（地図自動ジャンプ）",
         options=patient_options,
         index=0,
-        help="選択した患者の位置へ地図が拡大（ズームレベル18）してピンポイント移動します"
+        help="選択した患者の位置へ地図を拡大させます"
     )
 
 selected_patient_id = None
