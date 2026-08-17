@@ -570,7 +570,7 @@ else:
             }
         )
     else:
-        st.success(f"現在（{created_time_str} 取得）、四国での停電情報はありません。")
+        st.success(f"現在（{created_time_str} 取得）、停電情報はありません。")
 
 
 def check_outage(address, outage_list):
