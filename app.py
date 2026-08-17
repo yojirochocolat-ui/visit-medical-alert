@@ -486,11 +486,12 @@ if mode == "仮想シミュレーションモード":
     with col_btn2:
         st.write(" ")
         st.write(" ")
-        if st.button("🔄 リセット", use_container_width=True):
-            st.session_state.sim_areas = []
-            st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.session_state.auto_filtered_once = False
-            st.rerun()
+if st.button("🔄 リセット", use_container_width=True):
+    st.session_state.sim_areas = []
+    st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+    st.session_state.auto_filtered_once = False
+    st.session_state["filter_unhandled"] = False  # 左下の絞り込みチェックも解除
+    st.rerun()
 
     for area in st.session_state.sim_areas:
         outage_data.append({
