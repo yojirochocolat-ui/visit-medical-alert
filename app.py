@@ -349,6 +349,7 @@ mode = st.sidebar.radio(
     key="input_fetch_mode_v3",
     help="""【仮想シミュレーション】
 手動で指定した地域を停電として模擬動作させます。
+
 【リアルタイムWeb取得】
 停電情報を自動取得します。"""
 )
@@ -366,7 +367,7 @@ current_location_addr = st.sidebar.text_input(
     "📍 現住所（拠点・現在地）",
     value="高松市サンポート2番1号",
     key="input_current_location_v3",
-    help="マップ上に拠点ピン(青)として表示され、ナビ起動時の標準出発地として使用されます"
+    help="マップ上に拠点ピン(青)として表示し、ナビ起動時の標準出発地として使用します"
 )
 
 st.sidebar.markdown("---")
@@ -378,7 +379,7 @@ with col_s1_text:
         value="",
         placeholder="例: 高松市瓦町1丁目",
         key="input_staff1_location_v1",
-        help="マップ上にスタッフ1のピン(橙)として表示されます"
+        help="マップ上にスタッフ1のピン(橙)として表示します"
     )
 with col_s1_toggle:
     st.write(" ")
@@ -391,7 +392,7 @@ with col_s2_text:
         value="",
         placeholder="例: 高松市栗林町2丁目",
         key="input_staff2_location_v1",
-        help="マップ上にスタッフ2のピン(紫)として表示されます"
+        help="マップ上にスタッフ2のピン(紫)として表示します"
     )
 with col_s2_toggle:
     st.write(" ")
@@ -415,6 +416,7 @@ update_mode = st.sidebar.radio(
     key="input_update_mode_v3",
    help="""【現リストに追加】
 既存のデータに新規患者を追加します。
+
 【現リストと入れ替え】
 現在のリストを全消去し、新ファイルのリストに入れ替えます。"""
 )
