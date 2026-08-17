@@ -57,7 +57,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("💡 停電アラート")
-st.caption("リアルタイムの停電情報と患者リストを照合し、患者優先度とナビ連携で初動対応を支援します。")
+st.caption("リアルタイムの停電情報と患者リストとを照合し、初動対応を支援します。")
 
 # ---------------------------------------------------------
 # セッション状態の初期化
@@ -348,17 +348,17 @@ mode = st.sidebar.radio(
     options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
     key="input_fetch_mode_v3",
     help="""【仮想シミュレーション】
-手動で指定した地域を停電として模擬動作させます。
+手動で指定した地域を停電として模擬動作します
 
 【リアルタイムWeb取得】
-停電情報を自動取得します。"""
+停電情報を自動取得します"""
 )
 
 auto_refresh_enabled = st.sidebar.toggle(
     "5分ごとの自動更新",
     value=False,
     key="auto_refresh_enabled",
-    help="ONにした場合のみ5分ごとに画面を自動更新します。通常はOFFで、手動更新を推奨します。"
+    help="ONにした場合のみ5分ごとに画面を自動更新します。通常はOFFで、手動更新を推奨します"
 )
 if auto_refresh_enabled:
     st_autorefresh(interval=300000, key="data_auto_refresh")
@@ -578,7 +578,7 @@ else:
             }
         )
     else:
-        st.success(f"現在（{created_time_str} 取得）、停電情報はありません。")
+        st.success(f"現在（{created_time_str} 取得）、停電情報はありません")
 
 
 def check_outage(address, outage_list):
@@ -904,9 +904,9 @@ if len(df_alert_all) > 0:
                 multi_nav_url = ""
             if multi_nav_url:
                 st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#5b7994; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
-                st.caption("※Googleマップナビが別タブで起動します（トリアージ優先度順）")
+                st.caption("※Googleマップナビが別タブで起動します")
 else:
-    st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
+    st.success("現在、停電エリアに該当する患者はいません（全員正常）")
 
 filter_col1, filter_col2 = st.columns([3, 3])
 with filter_col1:
@@ -930,7 +930,7 @@ with filter_col2:
         "🔍 特定患者にズーム（地図自動ジャンプ）",
         options=patient_options,
         index=0,
-        help="選択した患者の位置へ地図を拡大させます"
+        help="選択した患者の位置へ地図を拡大します"
     )
 
 selected_patient_id = None
@@ -1063,6 +1063,6 @@ if st.button("📧 対象患者のアラート通知を一括送信", help="要�
 
 有事の初動対応および安否・医療機器の動作確認をお願いいたします。
             """, language="text")
-        st.success(f"✅ {len(df_visit_target)} 件の通知メッセージを作成・送信処理（デモ）しました。")
+        st.success(f"✅ {len(df_visit_target)} 件の通知メッセージを作成・送信処理（デモ）しました")
     else:
-        st.info("訪問対象（未確認）の停電患者がいないため通知をしされません。")
+        st.info("訪問対象（未確認）の停電患者がいないため通知しません")
