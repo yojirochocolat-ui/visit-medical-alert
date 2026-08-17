@@ -471,7 +471,7 @@ if btn_reset:
         st.sidebar.info("🔄 初期デフォルトの患者リストにリセットしました！")
         st.rerun()
 
-st.sidebar.caption(f"現在登録されている総患者数: **{len(st.session_state.patients_data)} 名**")
+st.sidebar.caption(f"現在登録している総患者数: **{len(st.session_state.patients_data)} 名**")
 
 # ---------------------------------------------------------
 # 4. 停電データの照合準備 & 優先度(トリアージ)ソート
@@ -857,7 +857,7 @@ st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}*
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
     confirmed_cnt = len(df_alert_all[df_alert_all["対応ステータス"] == "安否確認済（安全）"])
-    st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
+    st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップしました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
 
     col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     with col_dl1:
@@ -1047,7 +1047,7 @@ target_email = st.text_input(
 )
 if st.button("📧 対象患者のアラート通知を一括送信", help="要訪問対象患者のアラート通知プレビューを生成・擬似送信します"):
     if len(df_visit_target) > 0:
-        st.write("**【医師へ送信される自動アナウンスプレビュー】**")
+        st.write("**【医師へ送信する自動アナウンスプレビュー】**")
         for idx, row in df_visit_target.iterrows():
             st.code(f"""
 件名: 【緊急停電アラート】担当患者の地域で停電検知（{row['患者名']} 様 / トリアージ: {row['トリアージ']}）
@@ -1065,4 +1065,4 @@ if st.button("📧 対象患者のアラート通知を一括送信", help="要�
             """, language="text")
         st.success(f"✅ {len(df_visit_target)} 件の通知メッセージを作成・送信処理（デモ）しました。")
     else:
-        st.info("訪問対象（未確認）の停電患者がいないため通知は送信されません。")
+        st.info("訪問対象（未確認）の停電患者がいないため通知をしされません。")
