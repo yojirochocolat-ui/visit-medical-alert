@@ -73,6 +73,10 @@ def init_session_state():
         "realtime_outage_data": [],
         "auto_refresh_enabled": False,
         "auto_filtered_once": False,
+        "previous_outage_keys": [],
+        "outage_popup_message": "",
+        "outage_popup_latest_fetch_time": "",
+        "outage_popup_toast_pending": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -142,6 +146,59 @@ def split_towns(raw_towns):
         return []
     return [t.strip() for t in re.split(r"[、,\s]+", raw) if t.strip()]
 
+
+def get_outage_area_label(item):
+    pref = normalize_text(item.get("prefecture", ""))
+    city = normalize_text(item.get("city", ""))
+    town = normalize_text(item.get("town", item.get("raw_towns", "")))
+
+    if town and town != "-":
+        area = town
+    elif city and city != "-":
+        area = city
+    else:
+        area = pref or "不明地域"
+
+    if city and city != "-" and city not in area:
+        area = f"{city} {area}"
+    if pref and pref != "-" and pref not in area:
+        area = f"{pref} {area}"
+
+    return area.strip()
+
+def get_outage_area_key(item):
+    pref = normalize_text(item.get("prefecture", ""))
+    city = normalize_text(item.get("city", ""))
+    town = normalize_text(item.get("town", item.get("raw_towns", "")))
+    announced_at = normalize_text(item.get("announced_at", ""))
+    return "|".join([pref, city, town, announced_at])
+
+def update_outage_popup_state(fetched_data):
+    current_area_map = {}
+    for item in fetched_data or []:
+        key = get_outage_area_key(item)
+        label = get_outage_area_label(item)
+        if key and label:
+            current_area_map[key] = label
+
+    current_keys = set(current_area_map.keys())
+    previous_keys = set(st.session_state.get("previous_outage_keys", []))
+    new_keys = current_keys - previous_keys
+
+    if new_keys:
+        new_areas = sorted({current_area_map[key] for key in new_keys})
+        if len(new_areas) == 1:
+            area_text = new_areas[0]
+            message = f"🚨【緊急停電発生】\n【{area_text}】で停電が発生しました。\n患者リストをご確認ください。"
+        else:
+            area_lines = "\n".join([f"・【{area}】で停電が発生しました。" for area in new_areas])
+            message = f"🚨【緊急停電発生】\n{area_lines}\n患者リストをご確認ください。"
+
+        st.session_state.outage_popup_message = message
+        st.session_state.outage_popup_latest_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+        st.session_state.outage_popup_toast_pending = True
+
+    st.session_state.previous_outage_keys = list(current_keys)
 
 def detect_column_map(headers):
     col_map = {"city": None, "town": None, "reason": None, "status": None}
@@ -532,6 +589,7 @@ else:
             fetch_outage_info.clear()
             with st.spinner("最新の停電情報を取得中..."):
                 fetched_data, fetch_errors = fetch_outage_info()
+            update_outage_popup_state(fetched_data)
             st.session_state.realtime_outage_data = fetched_data
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.auto_filtered_once = False
@@ -542,6 +600,7 @@ else:
     if st.session_state.last_fetch_time == "未取得" or auto_refresh_enabled:
         with st.spinner("停電情報を取得中..."):
             fetched_data, fetch_errors = fetch_outage_info()
+        update_outage_popup_state(fetched_data)
         st.session_state.realtime_outage_data = fetched_data
         st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
         st.session_state.auto_filtered_once = False
