@@ -33,7 +33,7 @@ st.set_page_config(page_title="停電アラート", layout="wide")
 st.markdown("""
     <style>
         .block-container {
-            padding-top: 2rem !important; /* 少し余白を広げて見切れを防ぐ */
+            padding-top: 2rem !important;
             padding-bottom: 1rem !important;
         }
         [data-testid="stSidebarUserContent"] {
@@ -47,7 +47,6 @@ st.markdown("""
             white-space: normal !important;
             line-height: 1.25rem !important;
         }
-        /* タイトルの見切れ防止と余白確保 */
         h1 {
             overflow: visible !important;
             line-height: 1.3 !important;
@@ -73,7 +72,7 @@ def init_session_state():
         "layout_option": "左右並べ（PC・大画面向け）",
         "realtime_outage_data": [],
         "auto_refresh_enabled": False,
-        "auto_filtered_once": False, # 自動絞り込み判定フラグ
+        "auto_filtered_once": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -82,7 +81,7 @@ def init_session_state():
 init_session_state()
 
 # ---------------------------------------------------------
-# 住所から緯度・経度を取得する関数（ジオコーディング）
+# ジオコーディング関数
 # ---------------------------------------------------------
 @st.cache_data(ttl=86400, show_spinner=False)
 def geocode_address(address):
@@ -103,7 +102,6 @@ def geocode_address(address):
 
 
 def ensure_lat_lon(df, seed=999):
-    """lat/lon列があれば再ジオコーディングせず、不足行だけ補完する。"""
     df = df.copy()
     if "lat" not in df.columns:
         df["lat"] = pd.NA
@@ -348,7 +346,8 @@ st.sidebar.header("⚙️ 動作設定")
 mode = st.sidebar.radio(
     "情報取得モード",
     options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
-    key="input_fetch_mode_v3"
+    key="input_fetch_mode_v3",
+    help="【仮想シミュレーション】手動で指定した地域を停電として模擬動作させます。\n【リアルタイムWeb取得】四国電力のWebサイトから実際の停電情報を自動取得します。"
 )
 
 auto_refresh_enabled = st.sidebar.toggle(
@@ -380,7 +379,7 @@ with col_s1_text:
     )
 with col_s1_toggle:
     st.write(" ")
-    staff1_show_pin = st.toggle("表示", value=True, key="toggle_staff1_pin")
+    staff1_show_pin = st.toggle("表示", value=True, key="toggle_staff1_pin", help="スタッフ1のピンを地図上に表示するかを切り替えます")
 
 col_s2_text, col_s2_toggle = st.sidebar.columns([3, 1])
 with col_s2_text:
@@ -393,7 +392,7 @@ with col_s2_text:
     )
 with col_s2_toggle:
     st.write(" ")
-    staff2_show_pin = st.toggle("表示", value=True, key="toggle_staff2_pin")
+    staff2_show_pin = st.toggle("表示", value=True, key="toggle_staff2_pin", help="スタッフ2のピンを地図上に表示するかを切り替えます")
 
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
@@ -403,20 +402,26 @@ st.sidebar.download_button(
     data=template_bytes,
     file_name=template_filename,
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    use_container_width=True
+    use_container_width=True,
+    help="患者リストを一括アップロードするための指定フォーマットExcelファイルをダウンロードします"
 )
 update_mode = st.sidebar.radio(
     "取り込み方法を選択",
     options=["現リストに追加", "現リストと入れ替え"],
     index=0,
-    key="input_update_mode_v3"
+    key="input_update_mode_v3",
+    help="【現リストに追加】既存のデータに新規患者を追加・更新します。\n【現リストと入れ替え】現在のリストを全消去し、新ファイルで上書きします。"
 )
-uploaded_file = st.sidebar.file_uploader("手元の患者リスト(Excel/CSV)を選択", type=["xlsx", "csv"])
+uploaded_file = st.sidebar.file_uploader(
+    "手元の患者リスト(Excel/CSV)を選択",
+    type=["xlsx", "csv"],
+    help="指定フォーマットに合わせたExcelまたはCSVファイルを指定してください"
+)
 col_btn1, col_btn2 = st.sidebar.columns([1, 1])
 with col_btn1:
-    btn_update = st.button("データ更新", type="primary", use_container_width=True)
+    btn_update = st.button("データ更新", type="primary", use_container_width=True, help="選択したファイルを読み込んで患者リストを反映します")
 with col_btn2:
-    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True)
+    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True, help="サンプル用の初期デフォルト患者データ（50件）に復元します")
 
 if btn_update:
     if uploaded_file is not None:
@@ -442,7 +447,7 @@ if btn_update:
                     updated_df = combined_df.drop_duplicates(subset=["患者名"], keep="last").reset_index(drop=True)
                     st.session_state.patients_data = updated_df
                     st.sidebar.success("現リストにデータを追加・上書き更新しました！")
-                st.session_state.auto_filtered_once = False # 再判定のためリセット
+                st.session_state.auto_filtered_once = False
                 st.rerun()
         except Exception as e:
             st.sidebar.error(f"ファイルの読み込みに失敗しました: {e}")
@@ -473,24 +478,25 @@ if mode == "仮想シミュレーションモード":
         sim_input = st.text_input(
             "停電が発生したと想定する地域（市町村や町名）を入力",
             value=",".join(st.session_state.sim_areas),
-            placeholder="例: 宮脇町, 木太町, 栗林町1丁目"
+            placeholder="例: 宮脇町, 木太町, 栗林町1丁目",
+            help="カンマ区切りで複数の町名・地域名を指定できます（例: 宮脇町, 栗林町1丁目）"
         )
     with col_btn1:
         st.write(" ")
         st.write(" ")
-        if st.button("▶️ シミュレーション実行", use_container_width=True):
+        if st.button("▶️ シミュレーション実行", use_container_width=True, help="入力した地域を停電エリアとして設定し照合を行います"):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-            st.session_state.auto_filtered_once = False # シミュレーション実行時に自動絞り込みを再適用
+            st.session_state.auto_filtered_once = False
             st.success("シミュレーションを実行・作成日時を更新しました！")
     with col_btn2:
         st.write(" ")
         st.write(" ")
-        if st.button("🔄 リセット", use_container_width=True):
+        if st.button("🔄 リセット", use_container_width=True, help="仮想停電エリアの設定を解除し、全員正常の状態に戻します"):
             st.session_state.sim_areas = []
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.auto_filtered_once = False
-            st.session_state["filter_unhandled"] = False  # チェックボックスを自動解除
+            st.session_state["filter_unhandled"] = False
             st.rerun()
 
     for area in st.session_state.sim_areas:
@@ -634,7 +640,6 @@ df_result = df_result.sort_values(by=["risk_sort", "triage_score"], ascending=[T
 df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
-# ★ 停電対象者がいて、まだ自動チェックが適用されていない場合は自動でONにする
 if len(df_visit_target) > 0 and not st.session_state.get("auto_filtered_once", False):
     st.session_state["filter_unhandled"] = True
     st.session_state["auto_filtered_once"] = True
@@ -835,7 +840,8 @@ with col_radio:
         ["左右並べ（PC・大画面向け）", "タブ切替（スマホ、省スペース向け）"],
         horizontal=True,
         label_visibility="collapsed",
-        key="layout_option_radio"
+        key="layout_option_radio",
+        help="画面レイアウトを「左右分割表示」か「タブ切り替え表示」に変更できます"
     )
 
 st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}**")
@@ -853,7 +859,8 @@ if len(df_alert_all) > 0:
             data=pdf_data,
             file_name="訪問対象者_停電リスク患者リスト.pdf",
             mime="application/pdf",
-            use_container_width=True
+            use_container_width=True,
+            help="訪問対象（安否未確認）患者の印刷用PDFデータをダウンロードします"
         )
     with col_dl2:
         m_target_dl = build_map(
@@ -871,7 +878,8 @@ if len(df_alert_all) > 0:
             data=html_data,
             file_name="訪問対象者_拡大マップ.html",
             mime="text/html",
-            use_container_width=True
+            use_container_width=True,
+            help="オフライン環境でも閲覧可能なインタラクティブマップHTMLをダウンロードします"
         )
     with col_dl3:
         if len(df_visit_target) > 0:
@@ -888,13 +896,17 @@ if len(df_alert_all) > 0:
                 multi_nav_url = ""
             if multi_nav_url:
                 st.markdown(f'<a href="{multi_nav_url}" target="_blank" style="display:block; text-align:center; background:#5b7994; color:white; padding:8px 12px; text-decoration:none; border-radius:4px; font-weight:bold; font-size:14px; box-sizing:border-box;">🚗 巡回ルート検索（高優先順・{len(addresses)}名）</a>', unsafe_allow_html=True)
-                st.caption("※Googleマップナビが別タブで起動します")
+                st.caption("※Googleマップナビが別タブで起動します（トリアージ優先度順）")
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
 filter_col1, filter_col2 = st.columns([3, 3])
 with filter_col1:
-    only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
+    only_unhandled = st.checkbox(
+        "🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む",
+        key="filter_unhandled",
+        help="チェックを入れると、安否確認が済んでいない停電対象者のみを表示します"
+    )
 
 if only_unhandled:
     display_target_df = df_result[(df_result["停電リスク"].str.contains("⚠️")) & (df_result["対応ステータス"] == "未対応")]
@@ -919,8 +931,8 @@ if selected_option != "選択なし（全体表示）":
 
 display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 column_config = {
-    "対応ステータス": st.column_config.SelectboxColumn("対応ステータス", options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], required=True),
-    "停電リスク": st.column_config.SelectboxColumn("停電リスク", options=["⚠️ 停電可能性あり", "🟢 正常"], required=True),
+    "対応ステータス": st.column_config.SelectboxColumn("対応ステータス", options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], required=True, help="患者の現在の対応・連絡状況を変更します"),
+    "停電リスク": st.column_config.SelectboxColumn("停電リスク", options=["⚠️ 停電可能性あり", "🟢 正常"], required=True, help="停電判定を手動で修正できます"),
     "ID": st.column_config.TextColumn("ID", disabled=True),
     "トリアージ": st.column_config.TextColumn("トリアージ", disabled=True),
     "患者名": st.column_config.TextColumn("患者名", disabled=True),
@@ -1020,8 +1032,12 @@ if editor_key in st.session_state and st.session_state[editor_key].get("edited_r
 # ---------------------------------------------------------
 st.markdown("---")
 st.subheader("3. 初動用アナウンスメール送信（デモ）")
-target_email = st.text_input("送信先医師のメールアドレス", value="doctor@example.com")
-if st.button("📧 対象患者のアラート通知を一括送信"):
+target_email = st.text_input(
+    "送信先医師のメールアドレス",
+    value="doctor@example.com",
+    help="アラート通知の送信テスト用メールアドレスを指定します"
+)
+if st.button("📧 対象患者のアラート通知を一括送信", help="要訪問対象患者のアラート通知プレビューを生成・擬似送信します"):
     if len(df_visit_target) > 0:
         st.write("**【医師へ送信される自動アナウンスプレビュー】**")
         for idx, row in df_visit_target.iterrows():
