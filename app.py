@@ -355,7 +355,7 @@ mode = st.sidebar.radio(
 )
 
 auto_refresh_enabled = st.sidebar.toggle(
-    "5分ごとの自動更新",
+    "停電情報の自動更新",
     value=False,
     key="auto_refresh_enabled",
     help="ONにした場合のみ5分ごとに画面を自動更新します。通常はOFFで、手動更新を推奨します"
