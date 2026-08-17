@@ -892,7 +892,9 @@ if len(df_alert_all) > 0:
 else:
     st.success("現在、停電エリアに該当する患者はいません。（全員正常）")
 
-filter_col1, filter_col2 = st.columns([3, 3])
+# カラム比率を変更し、右側に空きスペースを作ることで幅を約1/2に調整
+filter_col1, filter_col2, _ = st.columns([2.5, 2.5, 5])
+
 with filter_col1:
     only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
 
@@ -905,6 +907,7 @@ patient_options = ["選択なし（全体表示）"] + [
     f"{r['ID']} | {r['患者名']} 様 ({r['トリアージ']} - {r['住所']})"
     for _, r in display_target_df.iterrows()
 ]
+
 with filter_col2:
     selected_option = st.selectbox(
         "🔍 特定患者にズーム（地図自動ジャンプ）",
