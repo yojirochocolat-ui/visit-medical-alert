@@ -347,7 +347,11 @@ mode = st.sidebar.radio(
     "情報取得モード",
     options=["仮想シミュレーションモード", "リアルタイムWeb取得モード"],
     key="input_fetch_mode_v3",
-    help="【仮想シミュレーション】手動で指定した地域を停電として模擬動作させます。\n【リアルタイムWeb取得】四国電力のWebサイトから実際の停電情報を自動取得します。"
+    help="""【仮想シミュレーション】
+手動で指定した地域を停電として模擬動作させます。
+
+【リアルタイムWeb取得】
+停電情報を自動取得します。"""
 )
 
 auto_refresh_enabled = st.sidebar.toggle(
@@ -410,7 +414,11 @@ update_mode = st.sidebar.radio(
     options=["現リストに追加", "現リストと入れ替え"],
     index=0,
     key="input_update_mode_v3",
-    help="【現リストに追加】既存のデータに新規患者を追加・更新します。\n【現リストと入れ替え】現在のリストを全消去し、新ファイルで上書きします。"
+   help="""【現リストに追加】
+既存のデータに新規患者を追加します。
+
+【現リストと入れ替え】
+現在のリストを全消去し、新ファイルのリストに入れ替えます。"""
 )
 uploaded_file = st.sidebar.file_uploader(
     "手元の患者リスト(Excel/CSV)を選択",
