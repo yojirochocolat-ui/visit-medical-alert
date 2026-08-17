@@ -60,8 +60,6 @@ st.caption("リアルタイムの停電情報と患者リストを照合し、�
 def init_session_state():
     defaults = {
         "sim_areas": [],
-        "sim_disaster_types": ["停電"],
-        "sim_radius_m": 800,
         "sim_created_time": datetime.now(JST).strftime("%Y/%m/%d %H:%M"),
         "last_fetch_time": "未取得",
         "patient_status": {},
@@ -235,7 +233,6 @@ def parse_outage_table(table, pref_name, announced_at):
                 "reason": reason,
                 "status": status,
                 "announced_at": announced_at,
-                "disaster_types": ["停電"],
             })
     return records
 
@@ -402,50 +399,6 @@ with col_s2_toggle:
     st.write(" ")
     staff2_show_pin = st.toggle("表示", value=True, key="toggle_staff2_pin")
 
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("🗺️ ハザードマップ重ね表示")
-show_flood_layer = st.sidebar.checkbox(
-    "洪水浸水想定区域（想定最大規模）",
-    value=True,
-    key="hazard_show_flood",
-    help="国土地理院・ハザードマップポータルサイトの洪水浸水想定区域タイルを重ねます。"
-)
-show_landslide_layer = st.sidebar.checkbox(
-    "土砂災害警戒区域",
-    value=True,
-    key="hazard_show_landslide",
-    help="土石流・急傾斜地の崩壊・地すべりの3レイヤーを重ねます。"
-)
-show_tsunami_layer = st.sidebar.checkbox(
-    "津波浸水想定区域",
-    value=False,
-    key="hazard_show_tsunami",
-    help="津波浸水想定区域を重ねます。沿岸部での確認に使用します。"
-)
-show_high_tide_layer = st.sidebar.checkbox(
-    "高潮浸水想定区域",
-    value=False,
-    key="hazard_show_high_tide",
-    help="高潮浸水想定区域を重ねます。沿岸部での確認に使用します。"
-)
-hazard_opacity = st.sidebar.slider(
-    "ハザードマップの透明度",
-    min_value=0.1,
-    max_value=0.8,
-    value=0.45,
-    step=0.05,
-    key="hazard_opacity",
-    help="背景地図と患者ピンが見やすいように透明度を調整できます。"
-)
-hazard_settings = {
-    "flood": show_flood_layer,
-    "landslide": show_landslide_layer,
-    "tsunami": show_tsunami_layer,
-    "high_tide": show_high_tide_layer,
-    "opacity": hazard_opacity,
-}
-
 st.sidebar.markdown("---")
 st.sidebar.header("📂 データ追加・更新設定")
 template_bytes, template_filename = load_template_file()
@@ -516,38 +469,19 @@ outage_data = []
 created_time_str = ""
 
 if mode == "仮想シミュレーションモード":
-    st.subheader("1. 災害エリア・シミュレーター")
-    st.caption("地域と災害種別を指定して、停電・洪水・土砂災害・津波・高潮を想定した訓練用の抽出を行います。")
-
-    col_input, col_disaster, col_btn1, col_btn2 = st.columns([3.2, 3.2, 1.7, 1.4])
+    st.subheader("1. 停電エリア・シミュレーター")
+    col_input, col_btn1, col_btn2, _ = st.columns([4, 2, 1.5, 4.5])
     with col_input:
         sim_input = st.text_input(
-            "災害が発生したと想定する地域（市町村や町名）を入力",
+            "停電が発生したと想定する地域（市町村や町名）を入力",
             value=",".join(st.session_state.sim_areas),
             placeholder="例: 宮脇町, 木太町, 栗林町1丁目"
-        )
-    with col_disaster:
-        sim_disaster_types_input = st.multiselect(
-            "想定する災害種別",
-            options=["停電", "洪水", "土砂災害", "津波", "高潮"],
-            default=st.session_state.sim_disaster_types if st.session_state.sim_disaster_types else ["停電"],
-            help="複数選択できます。例：停電＋洪水、津波＋停電など。"
-        )
-        sim_radius_input = st.slider(
-            "地図上の災害エリア半径",
-            min_value=300,
-            max_value=3000,
-            value=int(st.session_state.sim_radius_m),
-            step=100,
-            help="シミュレーションで指定した地域を、地図上に半透明の円で表示する範囲です。"
         )
     with col_btn1:
         st.write(" ")
         st.write(" ")
         if st.button("▶️ シミュレーション実行", use_container_width=True):
             st.session_state.sim_areas = [a.strip() for a in sim_input.split(",") if a.strip()]
-            st.session_state.sim_disaster_types = sim_disaster_types_input if sim_disaster_types_input else ["停電"]
-            st.session_state.sim_radius_m = int(sim_radius_input)
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.success("シミュレーションを実行・作成日時を更新しました！")
     with col_btn2:
@@ -555,13 +489,10 @@ if mode == "仮想シミュレーションモード":
         st.write(" ")
         if st.button("🔄 リセット", use_container_width=True):
             st.session_state.sim_areas = []
-            st.session_state.sim_disaster_types = ["停電"]
-            st.session_state.sim_radius_m = 800
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.filter_unhandled = False
             st.rerun()
 
-    selected_sim_disasters = st.session_state.sim_disaster_types if st.session_state.sim_disaster_types else ["停電"]
     for area in st.session_state.sim_areas:
         outage_data.append({
             "prefecture": "香川県",
@@ -570,17 +501,12 @@ if mode == "仮想シミュレーションモード":
             "towns": [area],
             "raw_towns": area,
             "reason": "シミュレーション",
-            "status": "仮想災害エリアとして設定",
+            "status": "仮想停電エリアとして設定",
             "announced_at": st.session_state.sim_created_time,
-            "disaster_types": selected_sim_disasters,
         })
     created_time_str = st.session_state.sim_created_time
     if st.session_state.sim_areas:
-        st.caption(
-            f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}** / "
-            f"想定災害: **{'・'.join(selected_sim_disasters)}** / "
-            f"地図表示半径: **{st.session_state.sim_radius_m}m** (作成日時: {created_time_str})"
-        )
+        st.caption(f"現在のテスト対象エリア: **{', '.join(st.session_state.sim_areas)}** (作成日時: {created_time_str})")
     else:
         st.caption(f"現在のテスト対象エリア: **指定なし（全員正常）** (作成日時: {created_time_str})")
 else:
@@ -640,45 +566,21 @@ else:
         st.success(f"現在（{created_time_str} 取得）、四国版のWebサイト上に該当する停電情報はありません。")
 
 
-sim_marker_settings = None
-if mode == "仮想シミュレーションモード" and st.session_state.sim_areas:
-    sim_marker_settings = {
-        "areas": st.session_state.sim_areas,
-        "disaster_types": st.session_state.sim_disaster_types if st.session_state.sim_disaster_types else ["停電"],
-        "radius_m": int(st.session_state.sim_radius_m),
-    }
-
-def check_disaster_risks(address, outage_list):
-    """住所がシミュレーション/リアルタイム災害エリアに該当するか判定し、災害種別を返す。"""
+def check_outage(address, outage_list):
     if not outage_list:
-        return [], "正常"
+        return False, "正常"
     addr_str = str(address)
-    detected_types = []
-    detected_areas = []
     for item in outage_list:
-        matched_area = None
         city = str(item.get("city", ""))
         if city and city != "-" and city in addr_str:
-            matched_area = city
-        if matched_area is None:
-            for town in item.get("towns", []):
-                if town and town != "-" and town in addr_str:
-                    matched_area = town
-                    break
-        if matched_area is None:
-            raw_town = str(item.get("town", item.get("raw_towns", "")))
-            if raw_town and raw_town != "-" and raw_town in addr_str:
-                matched_area = raw_town
-
-        if matched_area:
-            detected_areas.append(matched_area)
-            for disaster_type in item.get("disaster_types", ["停電"]):
-                if disaster_type not in detected_types:
-                    detected_types.append(disaster_type)
-
-    if detected_types:
-        return detected_types, "、".join(dict.fromkeys(detected_areas))
-    return [], "正常"
+            return True, city
+        for town in item.get("towns", []):
+            if town and town != "-" and town in addr_str:
+                return True, town
+        raw_town = str(item.get("town", item.get("raw_towns", "")))
+        if raw_town and raw_town != "-" and raw_town in addr_str:
+            return True, raw_town
+    return False, "正常"
 
 
 def calc_triage_level(device, battery):
@@ -697,7 +599,7 @@ def calc_triage_level(device, battery):
 results = []
 for idx, row in st.session_state.patients_data.iterrows():
     p_id = str(row.get("ID", f"P{idx+1:03d}"))
-    disaster_risks, area_info = check_disaster_risks(str(row["住所"]), outage_data)
+    is_outage, area_info = check_outage(str(row["住所"]), outage_data)
     triage_label, triage_score = calc_triage_level(row.get("使用装置", "なし"), row.get("バッテリ", "ー"))
     status_info = st.session_state.patient_status.get(p_id, {})
     current_status = status_info.get("status", "未対応")
@@ -705,17 +607,15 @@ for idx, row in st.session_state.patients_data.iterrows():
     if "override_outage" in status_info:
         current_outage_str = status_info["override_outage"]
     else:
-        current_outage_str = "⚠️ 停電可能性あり" if "停電" in disaster_risks else "🟢 正常"
-    disaster_risk_str = "⚠️ " + "・".join(disaster_risks) if disaster_risks else "🟢 なし"
+        current_outage_str = "⚠️ 停電可能性あり" if is_outage else "🟢 正常"
     results.append({
         "ID": p_id,
         "対応ステータス": current_status,
         "更新時刻": updated_at,
         "停電リスク": current_outage_str,
-        "災害リスク": disaster_risk_str,
         "トリアージ": triage_label,
         "triage_score": triage_score,
-        "検知エリア": area_info if "⚠️" in disaster_risk_str else "-",
+        "検知エリア": area_info if "⚠️" in current_outage_str else "-",
         "患者名": row["患者名"],
         "使用装置": row.get("使用装置", "なし"),
         "バッテリ": row.get("バッテリ", "ー"),
@@ -728,144 +628,17 @@ for idx, row in st.session_state.patients_data.iterrows():
     })
 
 df_result = pd.DataFrame(results)
-df_result["risk_sort"] = df_result["災害リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
+df_result["risk_sort"] = df_result["停電リスク"].apply(lambda x: 0 if "⚠️" in x else 1)
 df_result = df_result.sort_values(by=["risk_sort", "triage_score"], ascending=[True, False]).drop(columns=["risk_sort"])
-df_alert_all = df_result[df_result["災害リスク"].str.contains("⚠️")]
+df_alert_all = df_result[df_result["停電リスク"].str.contains("⚠️")]
 df_visit_target = df_alert_all[df_alert_all["対応ステータス"] != "安否確認済（安全）"]
 
 # ---------------------------------------------------------
 # 5. 地図描画関数
 # ---------------------------------------------------------
-def add_hazard_layers(m, hazard_settings=None):
-    """国土地理院ハザードマップポータルサイトのオープンデータタイルを地図に重ねる。"""
-    if not hazard_settings:
-        return m
-
-    opacity = float(hazard_settings.get("opacity", 0.45))
-    attribution = (
-        "国土地理院・ハザードマップポータルサイト "
-        "https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html"
-    )
-
-    def add_tile(name, url, show=True, max_native_zoom=17):
-        if not show:
-            return
-        folium.raster_layers.TileLayer(
-            tiles=url,
-            attr=attribution,
-            name=name,
-            overlay=True,
-            control=True,
-            opacity=opacity,
-            max_native_zoom=max_native_zoom,
-            max_zoom=19,
-        ).add_to(m)
-
-    add_tile(
-        "ハザード：洪水浸水想定区域（想定最大規模）",
-        "https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png",
-        show=hazard_settings.get("flood", False),
-    )
-
-    if hazard_settings.get("landslide", False):
-        add_tile(
-            "ハザード：土砂災害（土石流）",
-            "https://disaportaldata.gsi.go.jp/raster/05_dosekiryukeikaikuiki/{z}/{x}/{y}.png",
-            show=True,
-        )
-        add_tile(
-            "ハザード：土砂災害（急傾斜地の崩壊）",
-            "https://disaportaldata.gsi.go.jp/raster/05_kyukeishakeikaikuiki/{z}/{x}/{y}.png",
-            show=True,
-        )
-        add_tile(
-            "ハザード：土砂災害（地すべり）",
-            "https://disaportaldata.gsi.go.jp/raster/05_jisuberikeikaikuiki/{z}/{x}/{y}.png",
-            show=True,
-        )
-
-    add_tile(
-        "ハザード：津波浸水想定区域",
-        "https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png",
-        show=hazard_settings.get("tsunami", False),
-    )
-
-    add_tile(
-        "ハザード：高潮浸水想定区域",
-        "https://disaportaldata.gsi.go.jp/raster/03_hightide_l2_shinsuishin_data/{z}/{x}/{y}.png",
-        show=hazard_settings.get("high_tide", False),
-    )
-
-    return m
-
-
-def normalize_sim_area_address(area):
-    """地名だけでジオコーディングが外れる場合を避けるため、香川県を補って検索する。"""
-    area_str = str(area).strip()
-    if not area_str:
-        return area_str
-    if any(pref in area_str for pref in ["北海道", "東京都", "大阪府", "京都府", "香川県", "徳島県", "愛媛県", "高知県"]):
-        return area_str
-    if area_str.startswith("高松市") or area_str.startswith("丸亀市") or area_str.startswith("坂出市") or area_str.startswith("三豊市") or area_str.startswith("観音寺市") or area_str.startswith("さぬき市") or area_str.startswith("東かがわ市") or area_str.startswith("善通寺市"):
-        return "香川県" + area_str
-    return "香川県高松市" + area_str
-
-
-def add_simulation_area_markers(m, sim_marker_settings=None):
-    """シミュレーションで指定した地域を、災害種別ごとの半透明円で地図上に表示する。"""
-    if not sim_marker_settings:
-        return m
-
-    disaster_styles = {
-        "停電": {"color": "#e53935", "label": "停電"},
-        "洪水": {"color": "#1e88e5", "label": "洪水"},
-        "土砂災害": {"color": "#8d6e63", "label": "土砂災害"},
-        "津波": {"color": "#8e24aa", "label": "津波"},
-        "高潮": {"color": "#00acc1", "label": "高潮"},
-    }
-    areas = sim_marker_settings.get("areas", [])
-    disaster_types = sim_marker_settings.get("disaster_types", [])
-    base_radius = int(sim_marker_settings.get("radius_m", 800))
-
-    for area in areas:
-        lat, lon = geocode_address(normalize_sim_area_address(area))
-        popup_lines = [f"<b>シミュレーション地域:</b> {area}", f"<b>災害種別:</b> {'・'.join(disaster_types)}"]
-        popup_lines.append(f"<b>表示半径:</b> {base_radius}m")
-        folium.Marker(
-            location=[lat, lon],
-            popup=folium.Popup("<br>".join(popup_lines), max_width=260),
-            tooltip=f"シミュレーション地域：{area} / {'・'.join(disaster_types)}",
-            icon=folium.Icon(color="red", icon="bullseye", prefix="fa")
-        ).add_to(m)
-
-        # 複数災害が重なる場合は同心円として少しずつ半径を変え、色が潰れないように表示する。
-        # 例：停電+洪水の場合、赤円と青円が少しずれて見えるのではなく、同じ中心の外周違いで重なりを示す。
-        for i, disaster_type in enumerate(disaster_types):
-            style = disaster_styles.get(disaster_type, {"color": "#ff9800", "label": disaster_type})
-            radius = base_radius + (i * 140)
-            fill_opacity = max(0.08, 0.18 - (i * 0.02))
-            folium.Circle(
-                location=[lat, lon],
-                radius=radius,
-                color=style["color"],
-                fill=True,
-                fill_color=style["color"],
-                fill_opacity=fill_opacity,
-                weight=3,
-                popup=folium.Popup(
-                    f"<b>シミュレーション地域:</b> {area}<br>"
-                    f"<b>災害種別:</b> {style['label']}<br>"
-                    f"<b>表示半径:</b> {radius}m",
-                    max_width=250,
-                ),
-                tooltip=f"{area} / {style['label']} / 半径{radius}m"
-            ).add_to(m)
-    return m
-
-
-def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True, hazard_settings=None, sim_marker_settings=None):
+def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True):
     if target_only:
-        display_df = df[(df["災害リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
+        display_df = df[(df["停電リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
     else:
         display_df = df
 
@@ -880,9 +653,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         m = folium.Map(location=[target_patient["lat"], target_patient["lon"]], zoom_start=18)
     else:
         m = folium.Map(location=[home_lat, home_lon], zoom_start=15)
-
-    add_hazard_layers(m, hazard_settings)
-    add_simulation_area_markers(m, sim_marker_settings)
 
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
     bounds_points = []
@@ -935,7 +705,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         bounds_points.append([s2_lat, s2_lon])
 
     for _, row in display_df.iterrows():
-        is_alert = "⚠️" in row.get("災害リスク", row["停電リスク"])
+        is_alert = "⚠️" in row["停電リスク"]
         if row["対応ステータス"] == "安否確認済（安全）":
             color = "gray"
             icon_type = "check-circle"
@@ -958,7 +728,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
             <b style='color:red;'>【{row['トリアージ']}】</b><br>
             <b>氏名:</b> {row['患者名']} ({status_badge})<br>
             <b>状態:</b> {row['対応ステータス']}<br>
-            <b>災害:</b> {row.get('災害リスク', '-')}<br>
             <b>装置:</b> {row['使用装置']} (バッテリ:{row['バッテリ']})<br>
             <b>住所:</b> {row['住所']}<br><hr style='margin:5px 0;'>
             <a href='tel:{tel_clean}' target='_blank' style='background:#0275d8; color:white; padding:3px 8px; text-decoration:none; border-radius:3px; font-size:11px;'>📞 TEL発信</a>
@@ -987,7 +756,6 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
         elif len(bounds_points) == 1:
             m.location = bounds_points[0]
             m.zoom_start = 16
-    folium.LayerControl(collapsed=True).add_to(m)
     return m
 
 # ---------------------------------------------------------
@@ -1069,7 +837,7 @@ st.caption(f"🕒 **データ取得・リスト作成日時: {created_time_str}*
 if len(df_alert_all) > 0:
     lv4_cnt = len(df_visit_target[df_visit_target["トリアージ"] == "Lv.4"])
     confirmed_cnt = len(df_alert_all[df_alert_all["対応ステータス"] == "安否確認済（安全）"])
-    st.error(f"🚨 災害想定エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
+    st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
 
     col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
     with col_dl1:
@@ -1089,9 +857,7 @@ if len(df_alert_all) > 0:
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin,
-            hazard_settings=hazard_settings,
-            sim_marker_settings=sim_marker_settings
+            show_staff2=staff2_show_pin
         )
         html_data = m_target_dl._repr_html_()
         st.download_button(
@@ -1122,7 +888,7 @@ else:
 
 filter_col1, filter_col2 = st.columns([3, 3])
 with filter_col1:
-    only_unhandled = st.checkbox("🔍 災害リスクあり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
+    only_unhandled = st.checkbox("🔍 停電可能性あり ＆ 未対応の患者のみに絞り込む", key="filter_unhandled")
 
 if only_unhandled:
     display_target_df = df_result[(df_result["停電リスク"].str.contains("⚠️")) & (df_result["対応ステータス"] == "未対応")]
@@ -1145,10 +911,9 @@ selected_patient_id = None
 if selected_option != "選択なし（全体表示）":
     selected_patient_id = selected_option.split(" | ")[0]
 
-display_cols = ["ID", "対応ステータス", "災害リスク", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
+display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 column_config = {
     "対応ステータス": st.column_config.SelectboxColumn("対応ステータス", options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], required=True),
-    "災害リスク": st.column_config.TextColumn("災害リスク", disabled=True),
     "停電リスク": st.column_config.SelectboxColumn("停電リスク", options=["⚠️ 停電可能性あり", "🟢 正常"], required=True),
     "ID": st.column_config.TextColumn("ID", disabled=True),
     "トリアージ": st.column_config.TextColumn("トリアージ", disabled=True),
@@ -1160,8 +925,8 @@ column_config = {
     "住所": st.column_config.TextColumn("住所", disabled=True),
 }
 
-list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可／災害リスクはシミュレーション条件から自動判定）</span>"
-map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 災害未対応 / ⚪ 確認済 / 🟢 正常 / ◎ シミュレーション地域)</span>"
+list_title_html = "#### 📋 患者リスト <span style='font-size:12px; color:gray; font-weight:normal;'>（対応ステータス・停電リスクは直接編集可）</span>"
+map_legend_title = "#### 🗺️ 訪問エリアマップ <span style='font-size:13px; font-weight:normal;'>(🔵 拠点 / 🟠 スタッフ1 / 🟣 スタッフ2 / 🔴 停電未対応 / ⚪ 確認済 / 🟢 停電なし)</span>"
 
 if layout_option == "左右並べ（PC・大画面向け）":
     col1, col2 = st.columns([6, 5])
@@ -1184,9 +949,7 @@ if layout_option == "左右並べ（PC・大画面向け）":
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin,
-            hazard_settings=hazard_settings,
-            sim_marker_settings=sim_marker_settings
+            show_staff2=staff2_show_pin
         )
         st_folium(m, width="100%", height=450, key="map_pc")
 else:
@@ -1211,9 +974,7 @@ else:
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin,
-            hazard_settings=hazard_settings,
-            sim_marker_settings=sim_marker_settings
+            show_staff2=staff2_show_pin
         )
         st_folium(m, width="100%", height=450, key="map_tab_all")
     with tab3:
@@ -1226,9 +987,7 @@ else:
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin,
-            hazard_settings=hazard_settings,
-            sim_marker_settings=sim_marker_settings
+            show_staff2=staff2_show_pin
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 
@@ -1269,7 +1028,6 @@ if st.button("📧 対象患者のアラート通知を一括送信"):
 {row['患者名']} 様の居住地域（{row['住所']}）にて停電が発生している可能性があります。
 
 ・トリアージ緊急度: {row['トリアージ']}
-・想定災害: {row.get('災害リスク', '-')}
 ・使用装置: {row['使用装置']} (バッテリ: {row['バッテリ']})
 ・作成日時: {created_time_str}
 
