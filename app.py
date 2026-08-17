@@ -5,7 +5,7 @@ import re
 import random
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-　
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -483,26 +483,14 @@ if mode == "仮想シミュレーションモード":
             st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.auto_filtered_once = False # シミュレーション実行時に自動絞り込みを再適用
             st.success("シミュレーションを実行・作成日時を更新しました！")
-
-
     with col_btn2:
-    st.write(" ")
-    st.write(" ")
-    if st.button("🔄 リセット", use_container_width=True):
-        # シミュレーション設定を初期化
-        st.session_state.sim_areas = []
-        st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-
-        # ★ 左下チェックを自動で解除
-        st.session_state["filter_unhandled"] = False
-
-        # 自動絞り込み判定フラグもリセット
-        st.session_state.auto_filtered_once = False
-
-        # 画面再描画
-        st.rerun()
-
-
+        st.write(" ")
+        st.write(" ")
+        if st.button("🔄 リセット", use_container_width=True):
+            st.session_state.sim_areas = []
+            st.session_state.sim_created_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
+            st.session_state.auto_filtered_once = False
+            st.rerun()
 
     for area in st.session_state.sim_areas:
         outage_data.append({
