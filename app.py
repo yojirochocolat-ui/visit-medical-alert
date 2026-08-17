@@ -848,7 +848,8 @@ if len(df_alert_all) > 0:
     with col_msg:
         st.error(f"🚨 停電エリア内に該当する患者が **{len(df_alert_all)} 名** ピックアップされました！（うち【要訪問 Lv.4】: **{lv4_cnt} 名** / 安否確認済み: **{confirmed_cnt} 名**）")
 
-    col_dl1, col_dl2, col_dl3 = st.columns([1, 1, 1])
+# 比率を [1, 1, 1, 3] にして右半分を空欄にし、ボタン群の幅を全体の半分に縮小
+    col_dl1, col_dl2, col_dl3, _ = st.columns([1, 1, 1, 3])
     with col_dl1:
         pdf_data = create_pdf_report(df_visit_target, created_time_str)
         st.download_button(
