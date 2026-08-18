@@ -212,14 +212,50 @@ def extract_value_after_label(text, label):
 
 def extract_time_text(text):
     text = normalize_text(text)
-    m = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分)", text)
-    return m.group(1) if m else "-"
+    patterns = [
+        r"発生日時\s*(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分)",
+        r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分)",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            return normalize_text(m.group(1))
+    return "-"
 
 
 def extract_count_text(text):
     text = normalize_text(text)
-    m = re.search(r"(\d+\s*戸(?:未満|程度)?|10\s*戸未満)", text)
-    return m.group(1).replace(" ", "") if m else "-"
+    patterns = [
+        r"停電戸数\s*(\d+\s*戸(?:未満|程度)?)(?:\s*\(|\s|$)",
+        r"(\d+\s*戸(?:未満|程度)?)",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            return normalize_text(m.group(1)).replace(" ", "")
+    return "-"
+
+
+def extract_reason_status_text(text):
+    text = normalize_text(text)
+    reason = "-"
+    status = "-"
+
+    reason_match = re.search(
+        r"停電理由\s*[：:]?\s*(.+?)(?:\s*対応状況\s*[：:]?|$)",
+        text,
+    )
+    if reason_match:
+        reason = normalize_text(reason_match.group(1))
+
+    status_match = re.search(
+        r"対応状況\s*[：:]?\s*(.+?)(?:\s*本サービス|\s*その他|\s*LINE|\s*©|$)",
+        text,
+    )
+    if status_match:
+        status = normalize_text(status_match.group(1))
+
+    return reason, status
 
 
 def detect_column_map(headers):
@@ -334,6 +370,8 @@ def parse_outage_table(table, pref_name, announced_at):
                         value = cols[i + 1]
                     else:
                         value = extract_value_after_label(col, "停電理由")
+                    if value == "-" and len(cols) >= 2:
+                        value = cols[-1]
                     break
             if value != "-":
                 current_reason = value
@@ -349,6 +387,8 @@ def parse_outage_table(table, pref_name, announced_at):
                         value = cols[i + 1]
                     else:
                         value = extract_value_after_label(col, "対応状況")
+                    if value == "-" and len(cols) >= 2:
+                        value = cols[-1]
                     break
             if value == "-" and len(cols) >= 2:
                 value = cols[-1]
@@ -425,27 +465,24 @@ def parse_outage_table(table, pref_name, announced_at):
 
 
 def parse_outage_text_fallback(body_text, pref_name, announced_at):
-    """table解析で取れない場合の保険。画面テキストから最低限の市町村・町名を抽出する。"""
+    """table解析で取れない場合の保険。画面テキストから市町村・町名・戸数・理由・対応状況を抽出する。"""
     text = normalize_text(body_text)
     if "停電情報はありません" in text:
         return []
 
     occurred_at = extract_time_text(text)
     outage_count = extract_count_text(text)
-    reason = "-"
-    status = "-"
-
-    m_reason = re.search(r"停電理由\s*[：:]?\s*([^。]+?)(?:対応状況|$)", text)
-    if m_reason:
-        reason = normalize_text(m_reason.group(1))
-    m_status = re.search(r"対応状況\s*[：:]?\s*(.+)$", text)
-    if m_status:
-        status = normalize_text(m_status.group(1))
+    reason, status = extract_reason_status_text(text)
 
     # 例: 愛媛県 松山市 東大栗町、福角町 停電理由 ...
-    m = re.search(rf"{re.escape(pref_name)}\s+([^\s]+?[市町村])\s+(.+?)(?:\s+停電理由|\s+対応状況|$)", text)
+    # 対象町名は「停電理由」「対応状況」「本サービス」などの手前までに限定する。
+    m = re.search(
+        rf"{re.escape(pref_name)}\s+([^\s]+?[市町村])\s+(.+?)(?:\s*停電理由\s*[：:]?|\s*対応状況\s*[：:]?|\s*本サービス|$)",
+        text,
+    )
     if not m:
         return []
+
     city = normalize_text(m.group(1))
     town = normalize_text(m.group(2))
     return [make_outage_record(pref_name, city, town, reason, status, announced_at, occurred_at, outage_count)]
