@@ -585,79 +585,30 @@ else:
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報（四国版）")
     with col_rt_btn:
-
-    if st.button("🔄 最新情報に更新"):
-
-        fetch_outage_info.clear()
-
-        with st.spinner("最新の停電情報を取得中..."):
-            fetched_data, fetch_errors = fetch_outage_info()
-
-        st.write("取得件数:", len(fetched_data))
-        st.json(fetched_data)
-
-        update_outage_popup_state(fetched_data)
-        st.session_state.realtime_outage_data = fetched_data
-        st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-        st.session_state.auto_filtered_once = False
-
-        if fetch_errors:
-            st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
-
-        st.rerun()
-
-    if st.session_state.last_fetch_time == "未取得" or auto_refresh_enabled:
-        with st.spinner("停電情報を取得中..."):
-            fetched_data, fetch_errors = fetch_outage_info()
-        update_outage_popup_state(fetched_data)
-        st.session_state.realtime_outage_data = fetched_data
-        st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
-        st.session_state.auto_filtered_once = False
-        if fetch_errors:
-            st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
-
-    outage_data = st.session_state.realtime_outage_data
-    created_time_str = st.session_state.last_fetch_telse:
-    col_rt_title, col_rt_btn, _ = st.columns([4, 1.5, 4.5])
-
-    with col_rt_title:
-        st.subheader("1. Webリアルタイム停電情報（四国版）")
-
-    with col_rt_btn:
         if st.button("🔄 最新情報に更新", help="四国電力の最新データを手動取得します", use_container_width=True):
             fetch_outage_info.clear()
-
             with st.spinner("最新の停電情報を取得中..."):
                 fetched_data, fetch_errors = fetch_outage_info()
-
-            st.write("取得件数:", len(fetched_data))
-            for item in fetched_data:
-                st.write(item)
-
             update_outage_popup_state(fetched_data)
             st.session_state.realtime_outage_data = fetched_data
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
             st.session_state.auto_filtered_once = False
-
             if fetch_errors:
                 st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
-
             st.rerun()
 
     if st.session_state.last_fetch_time == "未取得" or auto_refresh_enabled:
         with st.spinner("停電情報を取得中..."):
             fetched_data, fetch_errors = fetch_outage_info()
-
         update_outage_popup_state(fetched_data)
         st.session_state.realtime_outage_data = fetched_data
         st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
         st.session_state.auto_filtered_once = False
-
         if fetch_errors:
             st.warning("一部県の取得に失敗しました: " + " / ".join(fetch_errors))
 
     outage_data = st.session_state.realtime_outage_data
-    created_time_str = st.session_state.last_fetch_timeime
+    created_time_str = st.session_state.last_fetch_time
 
     if outage_data:
         outage_df_display = pd.DataFrame([
