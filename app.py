@@ -488,6 +488,32 @@ def parse_outage_text_fallback(body_text, pref_name, announced_at):
     return [make_outage_record(pref_name, city, town, reason, status, announced_at, occurred_at, outage_count)]
 
 
+
+
+def enrich_records_from_page_text(records, body_text):
+    """テーブルで取得済みの地域データに、ページ本文から戸数・理由・対応状況を補完する。"""
+    if not records:
+        return records
+
+    text = normalize_text(body_text)
+    page_occurred_at = extract_time_text(text)
+    page_outage_count = extract_count_text(text)
+    page_reason, page_status = extract_reason_status_text(text)
+
+    enriched = []
+    for record in records:
+        item = record.copy()
+        if item.get("occurred_at", "-") in ["", "-"] and page_occurred_at != "-":
+            item["occurred_at"] = page_occurred_at
+        if item.get("outage_count", "-") in ["", "-"] and page_outage_count != "-":
+            item["outage_count"] = page_outage_count
+        if item.get("reason", "-") in ["", "-"] and page_reason != "-":
+            item["reason"] = page_reason
+        if item.get("status", "-") in ["", "-"] and page_status != "-":
+            item["status"] = page_status
+        enriched.append(item)
+    return enriched
+
 @st.cache_data(ttl=180, show_spinner=False)
 def fetch_outage_info():
     outage_list = []
@@ -524,6 +550,9 @@ def fetch_outage_info():
 
             if not pref_records:
                 pref_records.extend(parse_outage_text_fallback(body_text, pref_name, announced_at))
+
+            # 地域情報がテーブルから取れた場合でも、戸数・理由・対応状況が別ブロックにあるため本文から補完する
+            pref_records = enrich_records_from_page_text(pref_records, body_text)
 
             outage_list.extend(pref_records)
 
