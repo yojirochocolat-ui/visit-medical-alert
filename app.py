@@ -514,27 +514,84 @@ def parse_outage_text_fallback(body_text, pref_name, announced_at):
 
 
 
+def extract_record_segment(body_text, pref_name, city, town):
+    """複数停電が同一ページにある場合、対象地域の周辺ブロックだけを切り出す。"""
+    text = normalize_text(body_text)
+    pref = normalize_text(pref_name)
+    city = normalize_text(city)
+    town = normalize_text(town)
+
+    search_terms = []
+    if town and town != "-":
+        search_terms.extend(split_towns(town))
+        search_terms.append(town)
+    if city and city != "-":
+        search_terms.append(city)
+
+    hit_positions = []
+    for term in search_terms:
+        term = normalize_text(term)
+        if not term or term == "-":
+            continue
+        pos = text.find(term)
+        if pos >= 0:
+            hit_positions.append(pos)
+
+    if not hit_positions:
+        return text
+
+    target_pos = min(hit_positions)
+
+    # 対象位置より前にある直近の「発生日時」をブロック開始とする
+    start = text.rfind("発生日時", 0, target_pos)
+    if start < 0:
+        start = max(0, target_pos - 300)
+
+    # 次の「発生日時」を次ブロック開始とみなし、その手前までを対象ブロックとする
+    next_start = text.find("発生日時", target_pos + 1)
+    if next_start < 0:
+        next_start = len(text)
+
+    segment = text[start:next_start]
+
+    # 念のため、前後が短すぎる場合は対象地域周辺を広めに取る
+    if len(segment) < 50:
+        segment = text[max(0, target_pos - 500):min(len(text), target_pos + 900)]
+
+    return segment
+
+
 def enrich_records_from_page_text(records, body_text):
-    """テーブルで取得済みの地域データに、ページ本文から戸数・理由・対応状況を補完する。"""
+    """テーブルで取得済みの地域データに、ページ本文から発生日時・戸数・理由・対応状況を対象地域ごとに補完する。"""
     if not records:
         return records
 
-    text = normalize_text(body_text)
-    page_occurred_at = extract_time_text(text)
-    page_outage_count = extract_count_text(text)
-    page_reason, page_status = extract_reason_status_text(text)
+    page_text = normalize_text(body_text)
+    fallback_occurred_at = extract_time_text(page_text)
+    fallback_outage_count = extract_count_text(page_text)
+    fallback_reason, fallback_status = extract_reason_status_text(page_text)
 
     enriched = []
     for record in records:
         item = record.copy()
-        if item.get("occurred_at", "-") in ["", "-"] and page_occurred_at != "-":
-            item["occurred_at"] = page_occurred_at
-        if item.get("outage_count", "-") in ["", "-"] and page_outage_count != "-":
-            item["outage_count"] = page_outage_count
-        if item.get("reason", "-") in ["", "-"] and page_reason != "-":
-            item["reason"] = page_reason
-        if item.get("status", "-") in ["", "-"] and page_status != "-":
-            item["status"] = page_status
+        pref = item.get("prefecture", "")
+        city = item.get("city", "")
+        town = item.get("town", item.get("raw_towns", ""))
+
+        segment = extract_record_segment(body_text, pref, city, town)
+        record_occurred_at = extract_time_text(segment)
+        record_outage_count = extract_count_text(segment)
+        record_reason, record_status = extract_reason_status_text(segment)
+
+        if item.get("occurred_at", "-") in ["", "-"]:
+            item["occurred_at"] = record_occurred_at if record_occurred_at != "-" else fallback_occurred_at
+        if item.get("outage_count", "-") in ["", "-"]:
+            item["outage_count"] = record_outage_count if record_outage_count != "-" else fallback_outage_count
+        if item.get("reason", "-") in ["", "-"]:
+            item["reason"] = record_reason if record_reason != "-" else fallback_reason
+        if item.get("status", "-") in ["", "-"]:
+            item["status"] = record_status if record_status != "-" else fallback_status
+
         enriched.append(item)
     return enriched
 
