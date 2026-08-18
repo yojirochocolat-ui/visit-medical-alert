@@ -146,25 +146,17 @@ def normalize_text(value):
 
 
 def format_display_datetime(value):
+    """一覧表示用に短く表示する。例: 2026年8月18日 15時20分 現在 -> 8/18 15:20"""
     text = normalize_text(value)
-
     if not text or text == "-":
         return "-"
 
-    m = re.search(
-        r"(?:\d{4}年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{1,2})分",
-        text
-    )
-
+    m = re.search(r"(?:\d{4}年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{1,2})分", text)
     if m:
-        result = f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
+        return f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
 
-        if "現在" in text:
-            result += " 現在"
+    return re.sub(r"^\d{4}年", "", text).strip()
 
-        return result
-
-    return text
 
 def split_towns(raw_towns):
     raw = normalize_text(raw_towns)
@@ -854,8 +846,8 @@ else:
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報（四国版）")
         st.markdown(
-    '🔗 **情報取得元：** [四国電力送配電 停電情報](https://www.yonden.co.jp/nw/teiden-info/)'
-)
+            "🔗 **情報取得元：** [https://www.yonden.co.jp/nw/teiden-info/](https://www.yonden.co.jp/nw/teiden-info/)"
+        )
     with col_rt_btn:
         if st.button("🔄 最新情報に更新", help="四国電力の最新データを手動取得します", use_container_width=True):
             fetch_outage_info.clear()
@@ -987,10 +979,113 @@ if len(df_visit_target) > 0 and not st.session_state.get("auto_filtered_once", F
     st.session_state["filter_unhandled"] = True
     st.session_state["auto_filtered_once"] = True
 
+
 # ---------------------------------------------------------
 # 5. 地図描画関数
 # ---------------------------------------------------------
-def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True):
+def get_outage_area_color(status):
+    status_text = normalize_text(status)
+    if "原因調査" in status_text or "調査中" in status_text:
+        return "#e53935", "原因調査中"
+    if "復旧作業" in status_text or "復旧" in status_text:
+        return "#fdd835", "復旧作業中"
+    if "シミュレーション" in status_text or "仮想" in status_text:
+        return "#ff9800", "シミュレーション"
+    return "#ff9800", "停電エリア"
+
+
+def get_outage_area_radius(item):
+    """停電戸数から簡易マーキング半径を決める。公式地図の範囲ではなく、町名中心の概略表示。"""
+    count_text = normalize_text(item.get("outage_count", ""))
+    if "未満" in count_text:
+        return 600
+    m = re.search(r"(\d+)", count_text)
+    if not m:
+        return 800
+    count = int(m.group(1))
+    if count <= 10:
+        return 600
+    if count <= 50:
+        return 900
+    if count <= 100:
+        return 1200
+    return 1600
+
+
+def add_outage_area_layers(m, outage_areas):
+    """取得済みまたはシミュレーションの停電地域を地図上に半透明円で表示する。"""
+    if not outage_areas:
+        return []
+
+    bounds_points = []
+    outage_group = folium.FeatureGroup(name="停電エリア", show=True)
+
+    for item in outage_areas:
+        pref = normalize_text(item.get("prefecture", ""))
+        city = normalize_text(item.get("city", ""))
+        raw_town = normalize_text(item.get("town", item.get("raw_towns", "")))
+        status = normalize_text(item.get("status", "-"))
+        reason = normalize_text(item.get("reason", "-"))
+        occurred_at = format_display_datetime(item.get("occurred_at", "-"))
+        outage_count = normalize_text(item.get("outage_count", "-"))
+        announced_at = format_display_datetime(item.get("announced_at", "-"))
+
+        towns = item.get("towns", []) or split_towns(raw_town)
+        if not towns and raw_town and raw_town != "-":
+            towns = [raw_town]
+        if not towns:
+            towns = [city] if city else []
+
+        color, status_label = get_outage_area_color(status)
+        radius = get_outage_area_radius(item)
+
+        for town in towns:
+            town = normalize_text(town)
+            if not town or town == "-":
+                continue
+
+            address_parts = [p for p in [pref, city, town] if p and p != "-"]
+            area_address = "".join(address_parts)
+            lat, lon = geocode_address(area_address)
+
+            popup_html = f"""
+            <div style='font-size:12px; width:260px; line-height:1.5;'>
+                <b>停電エリア</b><br>
+                <b>地域:</b> {pref} {city} {town}<br>
+                <b>発生日時:</b> {occurred_at}<br>
+                <b>停電戸数:</b> {outage_count}<br>
+                <b>停電理由:</b> {reason}<br>
+                <b>対応状況:</b> {status}<br>
+                <b>最終更新:</b> {announced_at}<br>
+                <span style='font-size:11px; color:gray;'>※町名中心点を基準にした概略マーキングです。公式地図の停電範囲と完全一致するものではありません。</span>
+            </div>
+            """
+
+            folium.Circle(
+                location=[lat, lon],
+                radius=radius,
+                color=color,
+                weight=2,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.28,
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"停電エリア：{city} {town}（{status_label}）",
+            ).add_to(outage_group)
+
+            folium.Marker(
+                location=[lat, lon],
+                popup=folium.Popup(popup_html, max_width=300),
+                tooltip=f"停電エリア中心：{city} {town}",
+                icon=folium.Icon(color="red" if color == "#e53935" else "orange", icon="bolt", prefix="fa"),
+            ).add_to(outage_group)
+
+            bounds_points.append([lat, lon])
+
+    outage_group.add_to(m)
+    return bounds_points
+
+def build_map(df, target_only=False, home_address="", staff1_address="", staff2_address="", selected_patient_id=None, show_staff1=True, show_staff2=True, outage_areas=None, show_outage_areas=True):
     if target_only:
         display_df = df[(df["停電リスク"].str.contains("⚠️")) & (df["対応ステータス"] != "安否確認済（安全）")]
     else:
@@ -1010,6 +1105,9 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
 
     marker_cluster = MarkerCluster(disableClusteringAtZoom=16).add_to(m)
     bounds_points = []
+
+    if show_outage_areas and outage_areas:
+        bounds_points.extend(add_outage_area_layers(m, outage_areas))
 
     if home_address and home_address.strip() != "":
         home_popup = f"""
@@ -1213,7 +1311,9 @@ if len(df_alert_all) > 0:
             staff1_address=staff1_location_addr,
             staff2_address=staff2_location_addr,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
+            show_staff2=staff2_show_pin,
+            outage_areas=outage_data,
+            show_outage_areas=True
         )
         html_data = m_target_dl._repr_html_()
         st.download_button(
@@ -1310,7 +1410,9 @@ if layout_option == "左右並べ（PC・大画面向け）":
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
+            show_staff2=staff2_show_pin,
+            outage_areas=outage_data,
+            show_outage_areas=True
         )
         st_folium(m, width="100%", height=450, key="map_pc")
 else:
@@ -1335,7 +1437,9 @@ else:
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
+            show_staff2=staff2_show_pin,
+            outage_areas=outage_data,
+            show_outage_areas=True
         )
         st_folium(m, width="100%", height=450, key="map_tab_all")
     with tab3:
@@ -1348,7 +1452,9 @@ else:
             staff2_address=staff2_location_addr,
             selected_patient_id=selected_patient_id,
             show_staff1=staff1_show_pin,
-            show_staff2=staff2_show_pin
+            show_staff2=staff2_show_pin,
+            outage_areas=outage_data,
+            show_outage_areas=True
         )
         st_folium(m_target, width="100%", height=450, key="map_tab_target")
 
