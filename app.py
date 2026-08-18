@@ -45,7 +45,12 @@ st.markdown("""
         .stAppDeployButton {display: none !important;}
         div[data-testid="stDataFrame"] div[role="gridcell"] {
             white-space: normal !important;
-            line-height: 1.25rem !important;
+            line-height: 1.35rem !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+        }
+        div[data-testid="stDataFrame"] div[role="row"] {
+            min-height: 54px !important;
         }
         h1 {
             overflow: visible !important;
@@ -138,6 +143,15 @@ PREFECTURE_URLS = {
 
 def normalize_text(value):
     return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def format_display_datetime(value):
+    """一覧表示用に西暦を外す。例: 2026年8月18日 10時57分 現在 -> 8月18日 10時57分 現在"""
+    text = normalize_text(value)
+    if not text or text == "-":
+        return "-"
+    text = re.sub(r"^\d{4}年", "", text)
+    return text.strip()
 
 
 def split_towns(raw_towns):
@@ -859,11 +873,11 @@ else:
                 "都道府県": item.get("prefecture", "-"),
                 "市区町村": item.get("city", "-"),
                 "対象町名": item.get("town", item.get("raw_towns", "-")),
-                "発生日時": item.get("occurred_at", "-"),
+                "発生日時": format_display_datetime(item.get("occurred_at", "-")),
                 "停電戸数": item.get("outage_count", "-"),
                 "停電理由": item.get("reason", "-"),
                 "対応状況": item.get("status", "-"),
-                "最終更新": item.get("announced_at", "-"),
+                "最終更新": format_display_datetime(item.get("announced_at", "-")),
             }
             for item in outage_data
         ])
@@ -871,16 +885,16 @@ else:
             outage_df_display,
             use_container_width=True,
             hide_index=True,
-            height=min(260, 58 + len(outage_df_display) * 58),
+            height=min(420, 88 + len(outage_df_display) * 90),
             column_config={
                 "都道府県": st.column_config.TextColumn("都道府県", width="small"),
                 "市区町村": st.column_config.TextColumn("市区町村", width="small"),
-                "対象町名": st.column_config.TextColumn("対象町名", width="small"),
+                "対象町名": st.column_config.TextColumn("対象町名", width="medium"),
                 "発生日時": st.column_config.TextColumn("発生日時", width="small"),
                 "停電戸数": st.column_config.TextColumn("停電戸数", width="small"),
-                "停電理由": st.column_config.TextColumn("停電理由", width="small"),
-                "対応状況": st.column_config.TextColumn("対応状況", width="medium"),
-                "サイト発表日時": st.column_config.TextColumn("サイト発表日時", width="small"),
+                "停電理由": st.column_config.TextColumn("停電理由", width="medium"),
+                "対応状況": st.column_config.TextColumn("対応状況", width="large"),
+                "最終更新": st.column_config.TextColumn("最終更新", width="small"),
             }
         )
     else:
