@@ -146,13 +146,25 @@ def normalize_text(value):
 
 
 def format_display_datetime(value):
-    """一覧表示用に西暦を外す。例: 2026年8月18日 10時57分 現在 -> 8月18日 10時57分 現在"""
     text = normalize_text(value)
+
     if not text or text == "-":
         return "-"
-    text = re.sub(r"^\d{4}年", "", text)
-    return text.strip()
 
+    m = re.search(
+        r"(?:\d{4}年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{1,2})分",
+        text
+    )
+
+    if m:
+        result = f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
+
+        if "現在" in text:
+            result += " 現在"
+
+        return result
+
+    return text
 
 def split_towns(raw_towns):
     raw = normalize_text(raw_towns)
