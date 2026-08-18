@@ -1012,7 +1012,79 @@ def get_outage_area_radius(item):
     return 1600
 
 
-def add_outage_area_layers(m, outage_areas):
+def find_outage_center_from_patients(patient_df, pref, city, town):
+    """患者住所に対象町名が含まれる場合は、その患者群の中心を停電エリア中心にする。"""
+    if patient_df is None or patient_df.empty:
+        return None
+    if "住所" not in patient_df.columns or "lat" not in patient_df.columns or "lon" not in patient_df.columns:
+        return None
+
+    town_text = normalize_text(town)
+    city_text = normalize_text(city)
+    pref_text = normalize_text(pref)
+
+    if not town_text or town_text == "-":
+        return None
+
+    df = patient_df.copy()
+    address_series = df["住所"].astype(str)
+    mask = address_series.str.contains(re.escape(town_text), regex=True, na=False)
+
+    # 市町村が正しく入っている場合は、市町村でも絞り込む。シミュレーションでは city=町名 の場合があるため、その場合は絞り込まない。
+    if city_text and city_text != "-" and city_text != town_text and any(s in city_text for s in ["市", "町", "村"]):
+        mask = mask & address_series.str.contains(re.escape(city_text), regex=True, na=False)
+    if pref_text and pref_text != "-":
+        pref_mask = address_series.str.contains(re.escape(pref_text), regex=True, na=False)
+        if pref_mask.any():
+            mask = mask & pref_mask
+
+    matched = df[mask]
+    if matched.empty:
+        return None
+
+    lat = pd.to_numeric(matched["lat"], errors="coerce").dropna()
+    lon = pd.to_numeric(matched["lon"], errors="coerce").dropna()
+    if lat.empty or lon.empty:
+        return None
+
+    # 代表住所から市町村名も補完する
+    sample_address = str(matched.iloc[0].get("住所", ""))
+    inferred_city = city_text
+    m = re.search(r"([一-龥ぁ-んァ-ヶ]+?[市町村])", sample_address)
+    if m:
+        inferred_city = m.group(1)
+
+    return float(lat.mean()), float(lon.mean()), inferred_city
+
+
+def build_geocode_address(pref, city, town, patient_df=None):
+    """重複した住所文字列を避け、可能なら患者住所から市町村を補完してジオコーディング用住所を作る。"""
+    pref = normalize_text(pref)
+    city = normalize_text(city)
+    town = normalize_text(town)
+
+    inferred_city = city
+    center = find_outage_center_from_patients(patient_df, pref, city, town)
+    if center:
+        lat, lon, inferred_city = center
+        return lat, lon, inferred_city, True
+
+    # シミュレーションで city=宮脇町、town=宮脇町 のように重複する場合は city を使わない。
+    use_city = city
+    if not use_city or use_city == "-" or use_city == town or not any(s in use_city for s in ["市", "町", "村"]):
+        use_city = ""
+
+    address_parts = []
+    for part in [pref, use_city, town]:
+        if part and part != "-" and part not in address_parts:
+            address_parts.append(part)
+
+    area_address = "".join(address_parts)
+    lat, lon = geocode_address(area_address)
+    return lat, lon, use_city or city, False
+
+
+def add_outage_area_layers(m, outage_areas, patient_df=None):
     """取得済みまたはシミュレーションの停電地域を地図上に半透明円で表示する。"""
     if not outage_areas:
         return []
@@ -1044,20 +1116,20 @@ def add_outage_area_layers(m, outage_areas):
             if not town or town == "-":
                 continue
 
-            address_parts = [p for p in [pref, city, town] if p and p != "-"]
-            area_address = "".join(address_parts)
-            lat, lon = geocode_address(area_address)
+            lat, lon, display_city, used_patient_center = build_geocode_address(pref, city, town, patient_df=patient_df)
+            display_city = display_city if display_city and display_city != "-" else city
+            center_note = "患者住所の分布中心を基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
 
             popup_html = f"""
             <div style='font-size:12px; width:260px; line-height:1.5;'>
                 <b>停電エリア</b><br>
-                <b>地域:</b> {pref} {city} {town}<br>
+                <b>地域:</b> {pref} {display_city} {town}<br>
                 <b>発生日時:</b> {occurred_at}<br>
                 <b>停電戸数:</b> {outage_count}<br>
                 <b>停電理由:</b> {reason}<br>
                 <b>対応状況:</b> {status}<br>
                 <b>最終更新:</b> {announced_at}<br>
-                <span style='font-size:11px; color:gray;'>※町名中心点を基準にした概略マーキングです。公式地図の停電範囲と完全一致するものではありません。</span>
+                <span style='font-size:11px; color:gray;'>※{center_note}。公式地図の停電範囲と完全一致するものではありません。</span>
             </div>
             """
 
@@ -1070,13 +1142,13 @@ def add_outage_area_layers(m, outage_areas):
                 fill_color=color,
                 fill_opacity=0.28,
                 popup=folium.Popup(popup_html, max_width=300),
-                tooltip=f"停電エリア：{city} {town}（{status_label}）",
+                tooltip=f"停電エリア：{display_city} {town}（{status_label}）",
             ).add_to(outage_group)
 
             folium.Marker(
                 location=[lat, lon],
                 popup=folium.Popup(popup_html, max_width=300),
-                tooltip=f"停電エリア中心：{city} {town}",
+                tooltip=f"停電エリア中心：{display_city} {town}",
                 icon=folium.Icon(color="red" if color == "#e53935" else "orange", icon="bolt", prefix="fa"),
             ).add_to(outage_group)
 
@@ -1107,7 +1179,7 @@ def build_map(df, target_only=False, home_address="", staff1_address="", staff2_
     bounds_points = []
 
     if show_outage_areas and outage_areas:
-        bounds_points.extend(add_outage_area_layers(m, outage_areas))
+        bounds_points.extend(add_outage_area_layers(m, outage_areas, patient_df=df))
 
     if home_address and home_address.strip() != "":
         home_popup = f"""
