@@ -863,7 +863,7 @@ else:
                 "停電戸数": item.get("outage_count", "-"),
                 "停電理由": item.get("reason", "-"),
                 "対応状況": item.get("status", "-"),
-                "サイト発表日時": item.get("announced_at", "-"),
+                "最終更新": item.get("announced_at", "-"),
             }
             for item in outage_data
         ])
