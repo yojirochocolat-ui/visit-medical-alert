@@ -585,10 +585,15 @@ else:
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報（四国版）")
     with col_rt_btn:
-        if st.button("🔄 最新情報に更新", help="四国電力の最新データを手動取得します", use_container_width=True):
-            fetch_outage_info.clear()
-            with st.spinner("最新の停電情報を取得中..."):
-                fetched_data, fetch_errors = fetch_outage_info()
+if st.button("🔄 最新情報に更新"):
+
+    fetch_outage_info.clear()
+
+    with st.spinner("最新の停電情報を取得中..."):
+        fetched_data, fetch_errors = fetch_outage_info()
+
+    st.write("取得件数:", len(fetched_data))
+    st.json(fetched_data)
             update_outage_popup_state(fetched_data)
             st.session_state.realtime_outage_data = fetched_data
             st.session_state.last_fetch_time = datetime.now(JST).strftime("%Y/%m/%d %H:%M")
