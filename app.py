@@ -853,6 +853,9 @@ else:
     col_rt_title, col_rt_btn, _ = st.columns([4, 1.5, 4.5])
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報（四国版）")
+        st.markdown(
+    '🔗 **情報取得元：** [四国電力送配電 停電情報](https://www.yonden.co.jp/nw/teiden-info/)'
+)
     with col_rt_btn:
         if st.button("🔄 最新情報に更新", help="四国電力の最新データを手動取得します", use_container_width=True):
             fetch_outage_info.clear()
