@@ -146,14 +146,17 @@ def normalize_text(value):
 
 
 def format_display_datetime(value):
+    """一覧表示用に短く表示する。例: 2026年8月18日 15時20分 / 2026/08/18 15:20 -> 8/18 15:20"""
     text = normalize_text(value)
     if not text or text == "-" or text == "未取得":
         return text if text else "-"
 
+    # 例: 2026年8月18日 15時20分 現在
     m = re.search(r"(?:\d{4}年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{1,2})分", text)
     if m:
         return f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
 
+    # 例: 2026/08/18 15:20
     m = re.search(r"(?:\d{4}/)?(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{1,2})", text)
     if m:
         return f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
@@ -247,8 +250,11 @@ def extract_time_text(text):
 def extract_count_text(text):
     text = normalize_text(text)
     patterns = [
+        # 例: 停電戸数 約200戸（発生時の停電戸数 約600戸）
         r"停電戸数\s*((?:約)?\s*\d+\s*戸(?:未満|程度)?)(?:\s*\(|\s|$)",
+        # 例: 停電戸数 10戸未満
         r"停電戸数\s*((?:約)?\s*\d+\s*戸(?:未満|程度)?)",
+        # 例: 約200戸
         r"((?:約)?\s*\d+\s*戸(?:未満|程度)?)",
     ]
     for pattern in patterns:
@@ -342,6 +348,7 @@ def parse_outage_table(table, pref_name, announced_at):
     if not rows:
         return records
 
+    # 行ごとのテキストを正規化して取得
     row_values = []
     for row in rows:
         cols = [normalize_text(ele.get_text(" ", strip=True)) for ele in row.find_all(["td", "th"])]
@@ -365,6 +372,7 @@ def parse_outage_table(table, pref_name, announced_at):
         if not joined or "停電情報はありません" in joined:
             continue
 
+        # 発生日時・停電戸数が1つの行にまとまるパターンに対応
         if "発生日時" in joined:
             t = extract_time_text(joined)
             if t != "-":
@@ -372,6 +380,7 @@ def parse_outage_table(table, pref_name, announced_at):
             c = extract_count_text(joined)
             if c != "-":
                 current_outage_count = c
+            # この行自体がヘッダーのみの場合は次へ
             if len(cols) <= 4 and not any(pref_name in x for x in cols):
                 continue
 
@@ -380,6 +389,7 @@ def parse_outage_table(table, pref_name, announced_at):
             if c != "-":
                 current_outage_count = c
 
+        # 停電理由・対応状況が別行になるパターンに対応
         if "停電理由" in joined or "理由" in joined or "原因" in joined:
             value = "-"
             for i, col in enumerate(cols):
@@ -423,6 +433,7 @@ def parse_outage_table(table, pref_name, announced_at):
         occurred_at = current_occurred_at
         outage_count = current_outage_count
 
+        # ヘッダー行に基づく通常テーブル
         if col_map["city"] is not None and col_map["city"] < len(cols):
             city = cols[col_map["city"]]
         if col_map["town"] is not None and col_map["town"] < len(cols):
@@ -436,6 +447,7 @@ def parse_outage_table(table, pref_name, announced_at):
         if col_map["outage_count"] is not None and col_map["outage_count"] < len(cols):
             outage_count = cols[col_map["outage_count"]]
 
+        # 画像のような「愛媛県 / 松山市 / 東大栗町、福角町」の3列パターン
         if (city == "-" or town == "-") and len(cols) >= 3 and cols[0] == pref_name:
             city = cols[1]
             town = cols[2]
@@ -444,6 +456,7 @@ def parse_outage_table(table, pref_name, announced_at):
             if len(cols) >= 5:
                 status = cols[4]
 
+        # 「松山市 / 東大栗町、福角町」の2列パターン
         elif (city == "-" or town == "-") and len(cols) >= 2:
             if cols[0] != pref_name and any(suffix in cols[0] for suffix in ["市", "町", "村"]):
                 city = cols[0]
@@ -453,6 +466,7 @@ def parse_outage_table(table, pref_name, announced_at):
                 if len(cols) >= 4:
                     status = cols[3]
 
+        # 6列以上のパターン: 発生日時 / 停電戸数 / 県 / 市町村 / 町名 / 詳細など
         if len(cols) >= 6 and cols[2] == pref_name:
             occurred_at = cols[0]
             outage_count = cols[1]
@@ -479,6 +493,7 @@ def parse_outage_table(table, pref_name, announced_at):
 
 
 def parse_outage_text_fallback(body_text, pref_name, announced_at):
+    """table解析で取れない場合の保険。画面テキストから市町村・町名・戸数・理由・対応状況を抽出する。"""
     text = normalize_text(body_text)
     if "停電情報はありません" in text:
         return []
@@ -487,6 +502,8 @@ def parse_outage_text_fallback(body_text, pref_name, announced_at):
     outage_count = extract_count_text(text)
     reason, status = extract_reason_status_text(text)
 
+    # 例: 愛媛県 松山市 東大栗町、福角町 停電理由 ...
+    # 対象町名は「停電理由」「対応状況」「本サービス」などの手前までに限定する。
     m = re.search(
         rf"{re.escape(pref_name)}\s+([^\s]+?[市町村])\s+(.+?)(?:\s*停電理由\s*[：:]?|\s*対応状況\s*[：:]?|\s*本サービス|$)",
         text,
@@ -499,7 +516,10 @@ def parse_outage_text_fallback(body_text, pref_name, announced_at):
     return [make_outage_record(pref_name, city, town, reason, status, announced_at, occurred_at, outage_count)]
 
 
+
+
 def extract_record_segment(body_text, pref_name, city, town):
+    """複数停電が同一ページにある場合、対象地域の周辺ブロックだけを切り出す。"""
     text = normalize_text(body_text)
     pref = normalize_text(pref_name)
     city = normalize_text(city)
@@ -526,16 +546,19 @@ def extract_record_segment(body_text, pref_name, city, town):
 
     target_pos = min(hit_positions)
 
+    # 対象位置より前にある直近の「発生日時」をブロック開始とする
     start = text.rfind("発生日時", 0, target_pos)
     if start < 0:
         start = max(0, target_pos - 300)
 
+    # 次の「発生日時」を次ブロック開始とみなし、その手前までを対象ブロックとする
     next_start = text.find("発生日時", target_pos + 1)
     if next_start < 0:
         next_start = len(text)
 
     segment = text[start:next_start]
 
+    # 念のため、前後が短すぎる場合は対象地域周辺を広めに取る
     if len(segment) < 50:
         segment = text[max(0, target_pos - 500):min(len(text), target_pos + 900)]
 
@@ -543,6 +566,7 @@ def extract_record_segment(body_text, pref_name, city, town):
 
 
 def enrich_records_from_page_text(records, body_text):
+    """テーブルで取得済みの地域データに、ページ本文から発生日時・戸数・理由・対応状況を対象地域ごとに補完する。"""
     if not records:
         return records
 
@@ -563,6 +587,8 @@ def enrich_records_from_page_text(records, body_text):
         record_outage_count = extract_count_text(segment)
         record_reason, record_status = extract_reason_status_text(segment)
 
+        # 複数停電が同一ページにある場合、テーブル内で前行の値を引き継いでしまうことがあるため、
+        # 対象地域ブロックから取れた値を優先して上書きする。
         if record_occurred_at != "-":
             item["occurred_at"] = record_occurred_at
         elif item.get("occurred_at", "-") in ["", "-"]:
@@ -623,13 +649,16 @@ def fetch_outage_info():
             if not pref_records:
                 pref_records.extend(parse_outage_text_fallback(body_text, pref_name, announced_at))
 
+            # 地域情報がテーブルから取れた場合でも、戸数・理由・対応状況が別ブロックにあるため本文から補完する
             pref_records = enrich_records_from_page_text(pref_records, body_text)
+
             outage_list.extend(pref_records)
 
         except Exception as e:
             errors.append(f"{pref_name}: {e}")
             continue
 
+    # 重複除去
     unique = {}
     for item in outage_list:
         key = get_outage_area_key(item)
@@ -640,103 +669,43 @@ def fetch_outage_info():
 # 2. デモ用データ・添付ファイルDL関数
 # ---------------------------------------------------------
 @st.cache_data
-def generate_default_patients():
-    """提供いただいた患者データをベースに初期患者データを生成"""
-    raw_patients = [
-        {"id": "P001", "name": "佐藤 健一", "kana": "サトウ ケンイチ", "pref": "香川県", "city": "高松市", "address": "香川県高松市番町1-1-1"},
-        {"id": "P002", "name": "鈴木 美咲", "kana": "スズキ ミサキ", "pref": "香川県", "city": "高松市", "address": "香川県高松市瓦町2-3-4"},
-        {"id": "P003", "name": "高橋 誠", "kana": "タカハシ マコト", "pref": "香川県", "city": "高松市", "address": "香川県高松市栗林町1-5-2"},
-        {"id": "P004", "name": "田中 陽子", "kana": "タナカ ヨウコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市太田上町4-8-1"},
-        {"id": "P005", "name": "伊藤 太郎", "kana": "イトウ タロウ", "pref": "香川県", "city": "高松市", "address": "香川県高松市屋島中町3-1-2"},
-        {"id": "P006", "name": "渡辺 裕子", "kana": "ワタナベ ヒロコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市仏生山町甲12-3"},
-        {"id": "P007", "name": "山本 浩二", "kana": "ヤマモト コウジ", "pref": "香川県", "city": "高松市", "address": "香川県高松市香川町川東上5-2"},
-        {"id": "P008", "name": "中村 由美", "kana": "ナカムラ ユミ", "pref": "香川県", "city": "高松市", "address": "香川県高松市国分寺町新居2-9"},
-        {"id": "P009", "name": "小林 哲也", "kana": "コバヤシ テツヤ", "pref": "香川県", "city": "高松市", "address": "香川県高松市牟礼町牟礼10-4"},
-        {"id": "P010", "name": "加藤 恵子", "kana": "カトウ ケイコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市庵治町3-1-5"},
-        {"id": "P011", "name": "吉田 正雄", "kana": "ヨシダ マサオ", "pref": "香川県", "city": "高松市", "address": "香川県高松市塩江町安原上東1-2"},
-        {"id": "P012", "name": "山田 典子", "kana": "ヤマダ ノリコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市扇町2-4-8"},
-        {"id": "P013", "name": "佐々木 隆", "kana": "ササキ タカシ", "pref": "香川県", "city": "高松市", "address": "香川県高松市木太町6-1-3"},
-        {"id": "P014", "name": "山口 純子", "kana": "ヤマグチ ジュンコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市林町2217-1"},
-        {"id": "P015", "name": "松本 勝", "kana": "マツモト マサル", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市大手町2-4-1"},
-        {"id": "P016", "name": "井上 真理子", "kana": "イノウエ マリコ", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市城東町3-12-5"},
-        {"id": "P017", "name": "木村 勇", "kana": "キムラ イサム", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市綾歌町岡田下1-4"},
-        {"id": "P018", "name": "林 千鶴", "kana": "ハヤシ チヅル", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市飯山町川原2-8"},
-        {"id": "P019", "name": "斎藤 昭二", "kana": "サイトウ ショウジ", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市土器町東4-1-2"},
-        {"id": "P020", "name": "清水 久美子", "kana": "シミズ クミコ", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市郡家町3-5-6"},
-        {"id": "P021", "name": "山崎 和也", "kana": "ヤマザキ カズヤ", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市飯野町東分1-3"},
-        {"id": "P022", "name": "森 直樹", "kana": "モリ ナオキ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市室町2-3-1"},
-        {"id": "P023", "name": "池田 智子", "kana": "イケダ トモコ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市加茂町1-4-5"},
-        {"id": "P024", "name": "橋本 清", "kana": "ハシモト キヨシ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市府中町3-2-1"},
-        {"id": "P025", "name": "阿部 佳代", "kana": "アベ カヨ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市林田町5-8-2"},
-        {"id": "P026", "name": "石川 剛", "kana": "イシカワ タケシ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市川津町2-1-9"},
-        {"id": "P027", "name": "山下 直美", "kana": "ヤマシタ ナオミ", "pref": "香川県", "city": "善通寺市", "address": "香川県善通寺市文京町2-1-1"},
-        {"id": "P028", "name": "中島 博", "kana": "ナカジマ ヒロシ", "pref": "香川県", "city": "善通寺市", "address": "香川県善通寺市生野町3-4-2"},
-        {"id": "P029", "name": "石井 悦子", "kana": "イシイ エツコ", "pref": "香川県", "city": "善通寺市", "address": "香川県善通寺市与北町1-5-8"},
-        {"id": "P030", "name": "小川 茂", "kana": "オガワ シゲル", "pref": "香川県", "city": "善通寺市", "address": "香川県善通寺市原田町4-2-1"},
-        {"id": "P031", "name": "前田 和代", "kana": "マエダ カズヨ", "pref": "香川県", "city": "観音寺市", "address": "香川県観音寺市坂本町1-3-2"},
-        {"id": "P032", "name": "岡田 稔", "kana": "オカダ ミノル", "pref": "香川県", "city": "観音寺市", "address": "香川県観音寺市大野原町大野原2-1"},
-        {"id": "P033", "name": "長谷川 幸子", "kana": "ハセガワ サチコ", "pref": "香川県", "city": "観音寺市", "address": "香川県観音寺市豊浜町姫浜3-4"},
-        {"id": "P034", "name": "近藤 英雄", "kana": "コンドウ ヒデオ", "pref": "香川県", "city": "観音寺市", "address": "香川県観音寺市高屋町1-8-5"},
-        {"id": "P035", "name": "後藤 みどり", "kana": "ゴトウ ミドリ", "pref": "香川県", "city": "さぬき市", "address": "香川県さぬき市志度1-2-3"},
-        {"id": "P036", "name": "村上 秀樹", "kana": "ムラカミ ヒデキ", "pref": "香川県", "city": "さぬき市", "address": "香川県さぬき市津田町津田4-1"},
-        {"id": "P037", "name": "遠藤 節子", "kana": "エンドウ セツコ", "pref": "香川県", "city": "さぬき市", "address": "香川県さぬき市長尾東2-8-4"},
-        {"id": "P038", "name": "青木 健二", "kana": "アオキ ケンジ", "pref": "香川県", "city": "さぬき市", "address": "香川県さぬき市寒川町石田西1-3"},
-        {"id": "P039", "name": "坂本 洋子", "kana": "サカモト ヨウコ", "pref": "香川県", "city": "東かがわ市", "address": "香川県東かがわ市湊1-4-2"},
-        {"id": "P040", "name": "斉藤 達也", "kana": "サイトウ タツヤ", "pref": "香川県", "city": "東かがわ市", "address": "香川県東かがわ市白鳥3-2-1"},
-        {"id": "P041", "name": "福田 裕美", "kana": "フクダ ヒロミ", "pref": "香川県", "city": "東かがわ市", "address": "香川県東かがわ市引田2-5-8"},
-        {"id": "P042", "name": "太田 光雄", "kana": "オオタ ミツオ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市高瀬町下勝間1-2"},
-        {"id": "P043", "name": "西村 友子", "kana": "ニシムラ トモコ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市山本町辻3-8-1"},
-        {"id": "P044", "name": "藤田 武", "kana": "フジタ タケシ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市豊中町本篠4-1-2"},
-        {"id": "P045", "name": "岡本 早苗", "kana": "オカモト サナエ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市詫間町詫間2-4-5"},
-        {"id": "P046", "name": "藤井 一郎", "kana": "フジイ イチロウ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市仁尾町仁尾5-3-1"},
-        {"id": "P047", "name": "原田 芳江", "kana": "ハラダ ヨシエ", "pref": "香川県", "city": "土庄町", "address": "香川県小豆郡土庄町甲1-2-3"},
-        {"id": "P048", "name": "小嶋 忠", "kana": "コジマ タダシ", "pref": "香川県", "city": "土庄町", "address": "香川県小豆郡土庄町淵崎2-4-1"},
-        {"id": "P049", "name": "竹内 明美", "kana": "タケウチ アケミ", "pref": "香川県", "city": "小豆島町", "address": "香川県小豆郡小豆島町安田1-3-2"},
-        {"id": "P050", "name": "中川 勝己", "kana": "ナカガワ カツミ", "pref": "香川県", "city": "小豆島町", "address": "香川県小豆郡小豆島町池田4-1-8"},
-        {"id": "P051", "name": "金子 京子", "kana": "カネコ キョウコ", "pref": "香川県", "city": "三木町", "address": "香川県木田郡三木町氷上1-2-4"},
-        {"id": "P052", "name": "和田 進", "kana": "ワダ ススム", "pref": "香川県", "city": "三木町", "address": "香川県木田郡三木町平木3-8-2"},
-        {"id": "P053", "name": "中山 真由美", "kana": "ナカヤマ マユミ", "pref": "香川県", "city": "三木町", "address": "香川県木田郡三木町池戸2-1-9"},
-        {"id": "P054", "name": "石橋 保", "kana": "イシバシ タモツ", "pref": "香川県", "city": "直島町", "address": "香川県香川郡直島町1-2-3"},
-        {"id": "P055", "name": "上野 智恵", "kana": "ウエノ チエ", "pref": "香川県", "city": "宇多津町", "address": "香川県綾歌郡宇多津町浜五番丁2-1"},
-        {"id": "P056", "name": "市川 俊夫", "kana": "イチカワ トシオ", "pref": "香川県", "city": "宇多津町", "address": "香川県綾歌郡宇多津町1881-1"},
-        {"id": "P057", "name": "矢野 まゆみ", "kana": "ヤノ マユミ", "pref": "香川県", "city": "綾川町", "address": "香川県綾歌郡綾川町滝宮1-4-2"},
-        {"id": "P058", "name": "小野 茂樹", "kana": "オノ シゲキ", "pref": "香川県", "city": "綾川町", "address": "香川県綾歌郡綾川町陶3-1-5"},
-        {"id": "P059", "name": "松井 淑子", "kana": "マツイ トシコ", "pref": "香川県", "city": "琴平町", "address": "香川県仲多度郡琴平町892-1"},
-        {"id": "P060", "name": "千葉 光一", "kana": "チバ コウイチ", "pref": "香川県", "city": "多度津町", "address": "香川県仲多度郡多度津町栄町1-2-3"},
-        {"id": "P061", "name": "菅原 貴子", "kana": "スガワラ タカコ", "pref": "香川県", "city": "まんのう町", "address": "香川県仲多度郡まんのう町吉野2-1-4"},
-        {"id": "P062", "name": "木下 修", "kana": "キノシタ オサム", "pref": "香川県", "city": "高松市", "address": "香川県高松市三条町1-5-3"},
-        {"id": "P063", "name": "久保 典子", "kana": "クボ ノリコ", "pref": "香川県", "city": "高松市", "address": "香川県高松市一宮町2-8-1"},
-        {"id": "P064", "name": "野口 和雄", "kana": "ノグチ カズオ", "pref": "香川県", "city": "丸亀市", "address": "香川県丸亀市中津町1-3-4"},
-        {"id": "P065", "name": "松尾 礼子", "kana": "マツオ レイコ", "pref": "香川県", "city": "坂出市", "address": "香川県坂出市八幡町2-1-8"},
-        {"id": "P066", "name": "野村 憲治", "kana": "ノムラ ケンジ", "pref": "香川県", "city": "観音寺市", "address": "香川県観音寺市植田町3-5-2"},
-        {"id": "P067", "name": "菊地 裕子", "kana": "キクチ ヒロコ", "pref": "香川県", "city": "さぬき市", "address": "香川県さぬき市鴨庄1-2-9"},
-        {"id": "P068", "name": "新井 隆夫", "kana": "アライ タカオ", "pref": "香川県", "city": "三豊市", "address": "香川県三豊市三野町吉津4-1-3"},
-        {"id": "P069", "name": "大野 あゆみ", "kana": "オオノ アユミ", "pref": "香川県", "city": "三木町", "address": "香川県木田郡三木町田中2-8-5"},
-        {"id": "P070", "name": "渡辺 健", "kana": "ワタナベ タケシ", "pref": "香川県", "city": "高松市", "address": "香川県高松市宮脇町1-1-1"}
-    ]
-
+def generate_50_kagawa_patients():
+    last_names = ["佐藤", "鈴木", "高橋", "田中", "伊藤", "渡辺", "山本", "中村", "小林", "加藤", "吉田", "山田", "松本", "井上", "木村"]
+    first_names = ["太郎", "花子", "一郎", "幸子", "健一", "洋子", "誠", "和子", "大輔", "美咲", "直樹", "裕子"]
     doctors = ["佐藤医師", "高橋医師", "鈴木医師", "中村医師"]
+    kagawa_spots = [
+        "香川県高松市栗林町1丁目", "香川県高松市栗林町2丁目", "香川県高松市宮脇町1丁目", "香川県高松市宮脇町2丁目",
+        "香川県高松市昭和町1丁目", "香川県高松市茜町", "香川県高松市扇町1丁目", "香川県高松市紫雲町",
+        "香川県高松市中新町", "香川県高松市藤塚町1丁目", "香川県高松市天神前", "香川県高松市錦町1丁目",
+        "香川県高松市番町1丁目", "香川県高松市番町3丁目", "香川県高松市瓦町1丁目", "香川県高松市塩上町1丁目",
+        "香川県高松市観光通1丁目", "香川県高松市木太町", "香川県高松市伏石町", "香川県高松市太田上町",
+        "香川県高松市多肥上町", "香川県高松市多肥下町", "香川県高松市今里町1丁目", "香川県高松市松縄町",
+        "香川県高松市林町", "香川県高松市三条町", "香川県高松市一宮町", "香川県高松市香西本町",
+        "香川県高松市香西南町", "香川県高松市屋島西町", "香川県高松市屋島中町", "香川県高松市春日町",
+        "香川県高松市川島東町", "香川県高松市福岡町1丁目", "香川県高松市福岡町3丁目", "香川県高松市古馬場町",
+        "香川県高松市兵庫町", "香川県高松市片原町", "香川県高松市丸亀町", "香川県高松市南新町",
+        "香川県高松市田町", "香川県高松市花園町1丁目", "香川県高松市築地町", "香川県高松市塩江町安原上",
+        "香川県高松市国分寺町新居", "香川県高松市牟礼町牟礼", "香川県高松市庵治町", "香川県高松市香川町川東上",
+        "香川県高松市鬼無町佐藤", "香川県高松市檀紙町"
+    ]
     device_options = ["なし", "人工呼吸器", "人工透析装置", "ペースメーカー"]
     device_weights = [0.5, 0.2, 0.15, 0.15]
-    
     patients = []
     random.seed(42)
-    for p in raw_patients:
+    spots_shuffled = kagawa_spots.copy()
+    random.shuffle(spots_shuffled)
+    for i in range(1, 51):
+        name = f"{random.choice(last_names)} {random.choice(first_names)}"
+        spot_addr = spots_shuffled[i - 1]
+        p_id = f"P{i:03d}"
+        addr = f"{spot_addr}{random.randint(1, 15)}-{random.randint(1, 10)}"
         doc = random.choice(doctors)
         tel = f"090-{random.randint(1000,9999)}-{random.randint(10,99):02d}XX"
         device = random.choices(device_options, weights=device_weights)[0]
         battery = "ー" if device == "なし" else random.choice(["○", "ー", "？"])
         patients.append({
-            "ID": p["id"],
-            "患者名": p["name"],
-            "フリガナ": p["kana"],
-            "都道府県": p["pref"],
-            "市区町村": p["city"],
-            "住所": p["address"],
-            "担当医": doc,
-            "連絡先": tel,
-            "使用装置": device,
-            "バッテリ": battery,
+            "ID": p_id, "患者名": name, "住所": addr,
+            "担当医": doc, "連絡先": tel, "使用装置": device, "バッテリ": battery,
             "備考": ""
         })
     return patients
@@ -753,8 +722,7 @@ def load_template_file():
         with open(target_file, "rb") as f:
             return f.read(), os.path.basename(target_file)
     sample_data = [{
-        "ID": "P001", "患者名": "佐藤 健一", "フリガナ": "サトウ ケンイチ",
-        "都道府県": "香川県", "市区町村": "高松市", "住所": "香川県高松市番町1-1-1",
+        "ID": "P001", "患者名": "山田 太郎", "住所": "香川県高松市宮脇町1丁目1-1",
         "担当医": "佐藤医師", "連絡先": "090-1234-56XX", "使用装置": "人工呼吸器",
         "バッテリ": "○", "備考": "要緊急確認"
     }]
@@ -766,7 +734,7 @@ def load_template_file():
 
 
 if st.session_state.patients_data is None:
-    initial_df = pd.DataFrame(generate_default_patients())
+    initial_df = pd.DataFrame(generate_50_kagawa_patients())
     st.session_state.patients_data = ensure_lat_lon(initial_df, seed=123)
 
 # ---------------------------------------------------------
@@ -859,7 +827,7 @@ col_btn1, col_btn2 = st.sidebar.columns([1, 1])
 with col_btn1:
     btn_update = st.button("データ更新", type="primary", use_container_width=True, help="選択したファイルを読み込んで患者リストを反映します")
 with col_btn2:
-    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True, help="サンプル用の初期デフォルト患者データに復元します")
+    btn_reset = st.button("🔄 初期データに戻す", type="secondary", use_container_width=True, help="サンプル用の初期デフォルト患者データ（50件）に復元します")
 
 if btn_update:
     if uploaded_file is not None:
@@ -868,15 +836,7 @@ if btn_update:
                 new_df = pd.read_csv(uploaded_file)
             else:
                 new_df = pd.read_excel(uploaded_file)
-            
-            # カラムマッピング補助（英語カラム名でアップロードされた場合の変換対応）
-            column_rename_map = {
-                "id": "ID", "name": "患者名", "kana": "フリガナ",
-                "pref": "都道府県", "city": "市区町村", "address": "住所"
-            }
-            new_df = new_df.rename(columns=column_rename_map)
-
-            target_cols = ["ID", "患者名", "フリガナ", "都道府県", "市区町村", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考"]
+            target_cols = ["ID", "患者名", "住所", "担当医", "連絡先", "使用装置", "バッテリ", "備考"]
             for col in target_cols:
                 if col not in new_df.columns:
                     new_df[col] = "-"
@@ -901,8 +861,8 @@ if btn_update:
         st.sidebar.warning("ファイルを選択してから「データ更新」を押してください。")
 
 if btn_reset:
-    with st.spinner("デフォルトの初期患者リストにリセット中..."):
-        initial_df = pd.DataFrame(generate_default_patients())
+    with st.spinner("デフォルトの初期患者リスト（50名）にリセット中..."):
+        initial_df = pd.DataFrame(generate_50_kagawa_patients())
         st.session_state.patients_data = ensure_lat_lon(initial_df, seed=123)
         st.session_state.patient_status = {}
         st.session_state.auto_filtered_once = False
@@ -1020,6 +980,7 @@ else:
             outage_df_display,
             use_container_width=True,
             hide_index=True,
+            # 固定高さを大きくしすぎると、データ行の下に空行のような余白が出るため、件数に応じて最小限の高さに調整します。
             height=min(260, 58 + len(outage_df_display) * 52),
             column_config={
                 "都道府県": st.column_config.TextColumn("都道府県", width="small"),
@@ -1089,9 +1050,6 @@ for idx, row in st.session_state.patients_data.iterrows():
         "triage_score": triage_score,
         "検知エリア": area_info if "⚠️" in current_outage_str else "-",
         "患者名": row["患者名"],
-        "フリガナ": row.get("フリガナ", "-"),
-        "都道府県": row.get("都道府県", "-"),
-        "市区町村": row.get("市区町村", "-"),
         "使用装置": row.get("使用装置", "なし"),
         "バッテリ": row.get("バッテリ", "ー"),
         "担当医": row.get("担当医", "-"),
@@ -1127,7 +1085,26 @@ def get_outage_area_color(status):
     return "#ff9800", "停電エリア"
 
 
+def get_outage_area_radius(item):
+    """停電戸数から簡易マーキング半径を決める。公式地図の範囲ではなく、町名中心の概略表示。"""
+    count_text = normalize_text(item.get("outage_count", ""))
+    if "未満" in count_text:
+        return 600
+    m = re.search(r"(\d+)", count_text)
+    if not m:
+        return 800
+    count = int(m.group(1))
+    if count <= 10:
+        return 600
+    if count <= 50:
+        return 900
+    if count <= 100:
+        return 1200
+    return 1600
+
+
 def find_outage_center_from_patients(patient_df, pref, city, town):
+    """患者住所に対象地域が含まれる場合は、その患者群の中心と広がりを停電エリア表示に使う。"""
     if patient_df is None or patient_df.empty:
         return None
     if "住所" not in patient_df.columns or "lat" not in patient_df.columns or "lon" not in patient_df.columns:
@@ -1144,6 +1121,8 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
     df = patient_df.copy()
     address_series = df["住所"].astype(str)
 
+    # 「高松市」のような市町村シミュレーションでは、市町村名で広く抽出する。
+    # 「宮脇町」のような町名シミュレーションでは町名で抽出する。
     mask = address_series.str.contains(re.escape(target_text), regex=True, na=False)
 
     if pref_text and pref_text != "-":
@@ -1163,6 +1142,7 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
     center_lat = float(lat_series.mean())
     center_lon = float(lon_series.mean())
 
+    # 患者住所の広がりから半径を概算。1度緯度を約111kmとして簡易計算。
     max_distance_m = 0
     for lat, lon in zip(lat_series, lon_series):
         dlat = (float(lat) - center_lat) * 111000
@@ -1170,6 +1150,7 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
         distance_m = (dlat ** 2 + dlon ** 2) ** 0.5
         max_distance_m = max(max_distance_m, distance_m)
 
+    # 市町村レベルは広め、町名レベルはコンパクトにする。
     is_city_level = any(s in target_text for s in ["市", "町", "村"]) and not any(s in target_text for s in ["丁目"])
     if is_city_level:
         suggested_radius = max(3500, min(12000, int(max_distance_m + 1500)))
@@ -1186,6 +1167,7 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
 
 
 def build_geocode_address(pref, city, town, patient_df=None):
+    """重複した住所文字列を避け、可能なら患者住所から市町村を補完してジオコーディング用住所を作る。"""
     pref = normalize_text(pref)
     city = normalize_text(city)
     town = normalize_text(town)
@@ -1196,6 +1178,7 @@ def build_geocode_address(pref, city, town, patient_df=None):
         lat, lon, inferred_city, suggested_radius = center
         return lat, lon, inferred_city, True, suggested_radius
 
+    # シミュレーションで city=宮脇町、town=宮脇町 のように重複する場合は city を使わない。
     use_city = city
     if not use_city or use_city == "-" or use_city == town or not any(s in use_city for s in ["市", "町", "村"]):
         use_city = ""
@@ -1208,6 +1191,7 @@ def build_geocode_address(pref, city, town, patient_df=None):
     area_address = "".join(address_parts)
     lat, lon = geocode_address(area_address)
 
+    # 患者住所に一致しない場合でも、市町村レベルの指定は広めにする。
     target_text = town if town and town != "-" else city
     if any(s in target_text for s in ["市", "町", "村"]):
         suggested_radius = 5000
@@ -1217,6 +1201,7 @@ def build_geocode_address(pref, city, town, patient_df=None):
 
 
 def add_outage_area_layers(m, outage_areas, patient_df=None):
+    """取得済みまたはシミュレーションの停電地域を地図上に代表地点ピンで表示する。"""
     if not outage_areas:
         return []
 
@@ -1248,6 +1233,7 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
 
             lat, lon, display_city, used_patient_center, suggested_radius = build_geocode_address(pref, city, town, patient_df=patient_df)
             display_city = display_city if display_city and display_city != "-" else city
+            center_note = "患者住所の分布中心を基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
 
             popup_html = f"""
             <div style='font-size:12px; width:260px; line-height:1.5;'>
@@ -1258,10 +1244,11 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
                 <b>停電理由:</b> {reason}<br>
                 <b>対応状況:</b> {status}<br>
                 <b>更新日時:</b> {announced_at}<br>
-                <span style='font-size:11px; color:gray;'>※停電地域の代表地点を示すピンです。</span>
+                <span style='font-size:11px; color:gray;'>※停電地域の代表地点を示すピンです。公式地図の停電範囲を示すものではありません。</span>
             </div>
             """
 
+            # 第1弾では誤解を避けるため、停電範囲を示す円は表示せず、停電地域の代表地点ピンのみ表示します。
             folium.Marker(
                 location=[lat, lon],
                 popup=folium.Popup(popup_html, max_width=300),
@@ -1561,16 +1548,13 @@ selected_patient_id = None
 if selected_option != "選択なし（全体表示）":
     selected_patient_id = selected_option.split(" | ")[0]
 
-display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "フリガナ", "都道府県", "市区町村", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
+display_cols = ["ID", "対応ステータス", "停電リスク", "トリアージ", "患者名", "使用装置", "バッテリ", "担当医", "連絡先", "住所"]
 column_config = {
     "対応ステータス": st.column_config.SelectboxColumn("対応ステータス", options=["未対応", "連絡中", "安否確認済（安全）", "緊急訪問中"], required=True, help="患者の現在の対応・連絡状況を変更します"),
     "停電リスク": st.column_config.SelectboxColumn("停電リスク", options=["⚠️ 停電可能性あり", "🟢 正常"], required=True, help="停電判定を手動で修正できます"),
     "ID": st.column_config.TextColumn("ID", disabled=True),
     "トリアージ": st.column_config.TextColumn("トリアージ", disabled=True),
     "患者名": st.column_config.TextColumn("患者名", disabled=True),
-    "フリガナ": st.column_config.TextColumn("フリガナ", disabled=True),
-    "都道府県": st.column_config.TextColumn("都道府県", disabled=True),
-    "市区町村": st.column_config.TextColumn("市区町村", disabled=True),
     "使用装置": st.column_config.TextColumn("使用装置", disabled=True),
     "バッテリ": st.column_config.TextColumn("バッテリ", disabled=True),
     "担当医": st.column_config.TextColumn("担当医", disabled=True),
