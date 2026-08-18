@@ -585,7 +585,7 @@ else:
     with col_rt_title:
         st.subheader("1. Webリアルタイム停電情報（四国版）")
     with col_rt_btn:
-with col_rt_btn:
+
     if st.button("🔄 最新情報に更新"):
 
         fetch_outage_info.clear()
