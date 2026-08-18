@@ -1110,7 +1110,7 @@ def build_geocode_address(pref, city, town, patient_df=None):
 
 
 def add_outage_area_layers(m, outage_areas, patient_df=None):
-    """取得済みまたはシミュレーションの停電地域を地図上に半透明円で表示する。"""
+    """取得済みまたはシミュレーションの停電地域を地図上に代表地点ピンで表示する。"""
     if not outage_areas:
         return []
 
@@ -1134,7 +1134,6 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
             towns = [city] if city else []
 
         color, status_label = get_outage_area_color(status)
-        base_radius = get_outage_area_radius(item)
 
         for town in towns:
             town = normalize_text(town)
@@ -1143,8 +1142,7 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
 
             lat, lon, display_city, used_patient_center, suggested_radius = build_geocode_address(pref, city, town, patient_df=patient_df)
             display_city = display_city if display_city and display_city != "-" else city
-            radius = max(base_radius, suggested_radius) if suggested_radius else base_radius
-            center_note = "患者住所の分布中心と広がりを基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
+            center_note = "患者住所の分布中心を基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
 
             popup_html = f"""
             <div style='font-size:12px; width:260px; line-height:1.5;'>
@@ -1155,22 +1153,11 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
                 <b>停電理由:</b> {reason}<br>
                 <b>対応状況:</b> {status}<br>
                 <b>最終更新:</b> {announced_at}<br>
-                <span style='font-size:11px; color:gray;'>※{center_note}。公式地図の停電範囲と完全一致するものではありません。</span>
+                <span style='font-size:11px; color:gray;'>※停電地域の代表地点を示すピンです。公式地図の停電範囲を示すものではありません。</span>
             </div>
             """
 
-            folium.Circle(
-                location=[lat, lon],
-                radius=radius,
-                color=color,
-                weight=2,
-                fill=True,
-                fill_color=color,
-                fill_opacity=0.28,
-                popup=folium.Popup(popup_html, max_width=300),
-                tooltip=f"停電エリア：{display_city} {town}（{status_label}）",
-            ).add_to(outage_group)
-
+            # 第1弾では誤解を避けるため、停電範囲を示す円は表示せず、停電地域の代表地点ピンのみ表示します。
             folium.Marker(
                 location=[lat, lon],
                 popup=folium.Popup(popup_html, max_width=300),
