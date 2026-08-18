@@ -250,8 +250,12 @@ def extract_time_text(text):
 def extract_count_text(text):
     text = normalize_text(text)
     patterns = [
-        r"停電戸数\s*(\d+\s*戸(?:未満|程度)?)(?:\s*\(|\s|$)",
-        r"(\d+\s*戸(?:未満|程度)?)",
+        # 例: 停電戸数 約200戸（発生時の停電戸数 約600戸）
+        r"停電戸数\s*((?:約)?\s*\d+\s*戸(?:未満|程度)?)(?:\s*\(|\s|$)",
+        # 例: 停電戸数 10戸未満
+        r"停電戸数\s*((?:約)?\s*\d+\s*戸(?:未満|程度)?)",
+        # 例: 約200戸
+        r"((?:約)?\s*\d+\s*戸(?:未満|程度)?)",
     ]
     for pattern in patterns:
         m = re.search(pattern, text)
@@ -583,14 +587,27 @@ def enrich_records_from_page_text(records, body_text):
         record_outage_count = extract_count_text(segment)
         record_reason, record_status = extract_reason_status_text(segment)
 
-        if item.get("occurred_at", "-") in ["", "-"]:
-            item["occurred_at"] = record_occurred_at if record_occurred_at != "-" else fallback_occurred_at
-        if item.get("outage_count", "-") in ["", "-"]:
-            item["outage_count"] = record_outage_count if record_outage_count != "-" else fallback_outage_count
-        if item.get("reason", "-") in ["", "-"]:
-            item["reason"] = record_reason if record_reason != "-" else fallback_reason
-        if item.get("status", "-") in ["", "-"]:
-            item["status"] = record_status if record_status != "-" else fallback_status
+        # 複数停電が同一ページにある場合、テーブル内で前行の値を引き継いでしまうことがあるため、
+        # 対象地域ブロックから取れた値を優先して上書きする。
+        if record_occurred_at != "-":
+            item["occurred_at"] = record_occurred_at
+        elif item.get("occurred_at", "-") in ["", "-"]:
+            item["occurred_at"] = fallback_occurred_at
+
+        if record_outage_count != "-":
+            item["outage_count"] = record_outage_count
+        elif item.get("outage_count", "-") in ["", "-"]:
+            item["outage_count"] = fallback_outage_count
+
+        if record_reason != "-":
+            item["reason"] = record_reason
+        elif item.get("reason", "-") in ["", "-"]:
+            item["reason"] = fallback_reason
+
+        if record_status != "-":
+            item["status"] = record_status
+        elif item.get("status", "-") in ["", "-"]:
+            item["status"] = fallback_status
 
         enriched.append(item)
     return enriched
@@ -963,7 +980,8 @@ else:
             outage_df_display,
             use_container_width=True,
             hide_index=True,
-            height=min(420, 88 + len(outage_df_display) * 90),
+            # 固定高さを大きくしすぎると、データ行の下に空行のような余白が出るため、件数に応じて最小限の高さに調整します。
+            height=min(260, 58 + len(outage_df_display) * 52),
             column_config={
                 "都道府県": st.column_config.TextColumn("都道府県", width="small"),
                 "市区町村": st.column_config.TextColumn("市区町村", width="small"),
