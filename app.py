@@ -200,11 +200,43 @@ def update_outage_popup_state(fetched_data):
 
     st.session_state.previous_outage_keys = list(current_keys)
 
+
+def extract_value_after_label(text, label):
+    text = normalize_text(text)
+    if label not in text:
+        return "-"
+    value = text.split(label, 1)[1]
+    value = re.sub(r"^[：:\s]+", "", value)
+    return value.strip() or "-"
+
+
+def extract_time_text(text):
+    text = normalize_text(text)
+    m = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分)", text)
+    return m.group(1) if m else "-"
+
+
+def extract_count_text(text):
+    text = normalize_text(text)
+    m = re.search(r"(\d+\s*戸(?:未満|程度)?|10\s*戸未満)", text)
+    return m.group(1).replace(" ", "") if m else "-"
+
+
 def detect_column_map(headers):
-    col_map = {"city": None, "town": None, "reason": None, "status": None}
+    col_map = {
+        "prefecture": None,
+        "city": None,
+        "town": None,
+        "reason": None,
+        "status": None,
+        "occurred_at": None,
+        "outage_count": None,
+    }
     for i, h in enumerate(headers):
         text = normalize_text(h)
-        if any(k in text for k in ["市区町村", "市町村", "市町", "地区"]):
+        if any(k in text for k in ["都道府県", "県"]):
+            col_map["prefecture"] = i
+        elif any(k in text for k in ["市区町村", "市町村", "市町", "地区"]):
             col_map["city"] = i
         elif any(k in text for k in ["町名", "対象町名", "地域", "地区名"]):
             col_map["town"] = i
@@ -212,7 +244,38 @@ def detect_column_map(headers):
             col_map["reason"] = i
         elif any(k in text for k in ["対応状況", "状況", "復旧", "作業"]):
             col_map["status"] = i
+        elif "発生日時" in text:
+            col_map["occurred_at"] = i
+        elif "停電戸数" in text or "戸数" in text:
+            col_map["outage_count"] = i
     return col_map
+
+
+def make_outage_record(pref_name, city, town, reason="-", status="-", announced_at="-", occurred_at="-", outage_count="-"):
+    city = normalize_text(city)
+    town = normalize_text(town)
+    reason = normalize_text(reason) or "-"
+    status = normalize_text(status) or "-"
+    occurred_at = normalize_text(occurred_at) or "-"
+    outage_count = normalize_text(outage_count) or "-"
+
+    if not city or city == "-" or not town or town == "-":
+        return None
+    if "停電情報はありません" in city or "停電情報はありません" in town:
+        return None
+
+    return {
+        "prefecture": pref_name,
+        "city": city,
+        "town": town,
+        "towns": split_towns(town),
+        "raw_towns": town,
+        "reason": reason,
+        "status": status,
+        "announced_at": announced_at,
+        "occurred_at": occurred_at,
+        "outage_count": outage_count,
+    }
 
 
 def parse_outage_table(table, pref_name, announced_at):
@@ -221,23 +284,88 @@ def parse_outage_table(table, pref_name, announced_at):
     if not rows:
         return records
 
-    header_cols = [normalize_text(ele.get_text(" ", strip=True)) for ele in rows[0].find_all(["th", "td"])]
-    col_map = detect_column_map(header_cols)
-
-    for row in rows[1:] if any(header_cols) else rows:
+    # 行ごとのテキストを正規化して取得
+    row_values = []
+    for row in rows:
         cols = [normalize_text(ele.get_text(" ", strip=True)) for ele in row.find_all(["td", "th"])]
-        cols = [c for c in cols if c != ""]
-        if not cols:
+        cols = [c for c in cols if c]
+        if cols:
+            row_values.append(cols)
+
+    if not row_values:
+        return records
+
+    header_cols = row_values[0]
+    col_map = detect_column_map(header_cols)
+    current_occurred_at = "-"
+    current_outage_count = "-"
+    current_reason = "-"
+    current_status = "-"
+    last_record_index = None
+
+    for cols in row_values:
+        joined = normalize_text(" ".join(cols))
+        if not joined or "停電情報はありません" in joined:
             continue
-        joined = " ".join(cols)
-        if "発生日時" in joined or "停電情報はありません" in joined:
+
+        # 発生日時・停電戸数が1つの行にまとまるパターンに対応
+        if "発生日時" in joined:
+            t = extract_time_text(joined)
+            if t != "-":
+                current_occurred_at = t
+            c = extract_count_text(joined)
+            if c != "-":
+                current_outage_count = c
+            # この行自体がヘッダーのみの場合は次へ
+            if len(cols) <= 4 and not any(pref_name in x for x in cols):
+                continue
+
+        if "停電戸数" in joined or "戸未満" in joined or re.search(r"\d+\s*戸", joined):
+            c = extract_count_text(joined)
+            if c != "-":
+                current_outage_count = c
+
+        # 停電理由・対応状況が別行になるパターンに対応
+        if "停電理由" in joined or "理由" in joined or "原因" in joined:
+            value = "-"
+            for i, col in enumerate(cols):
+                if any(k in col for k in ["停電理由", "理由", "原因"]):
+                    if i + 1 < len(cols):
+                        value = cols[i + 1]
+                    else:
+                        value = extract_value_after_label(col, "停電理由")
+                    break
+            if value != "-":
+                current_reason = value
+                if last_record_index is not None:
+                    records[last_record_index]["reason"] = value
+            continue
+
+        if "対応状況" in joined or "復旧" in joined or "作業" in joined:
+            value = "-"
+            for i, col in enumerate(cols):
+                if any(k in col for k in ["対応状況", "状況"]):
+                    if i + 1 < len(cols):
+                        value = cols[i + 1]
+                    else:
+                        value = extract_value_after_label(col, "対応状況")
+                    break
+            if value == "-" and len(cols) >= 2:
+                value = cols[-1]
+            if value != "-":
+                current_status = value
+                if last_record_index is not None:
+                    records[last_record_index]["status"] = value
             continue
 
         city = "-"
         town = "-"
-        reason = "-"
-        status = "-"
+        reason = current_reason
+        status = current_status
+        occurred_at = current_occurred_at
+        outage_count = current_outage_count
 
+        # ヘッダー行に基づく通常テーブル
         if col_map["city"] is not None and col_map["city"] < len(cols):
             city = cols[col_map["city"]]
         if col_map["town"] is not None and col_map["town"] < len(cols):
@@ -246,49 +374,84 @@ def parse_outage_table(table, pref_name, announced_at):
             reason = cols[col_map["reason"]]
         if col_map["status"] is not None and col_map["status"] < len(cols):
             status = cols[col_map["status"]]
+        if col_map["occurred_at"] is not None and col_map["occurred_at"] < len(cols):
+            occurred_at = cols[col_map["occurred_at"]]
+        if col_map["outage_count"] is not None and col_map["outage_count"] < len(cols):
+            outage_count = cols[col_map["outage_count"]]
 
-        if city == "-" or town == "-":
-            if len(cols) >= 6:
-                city = cols[1]
-                town = cols[2]
-                reason = cols[4]
-                status = cols[5]
-            elif len(cols) >= 5:
-                city = cols[0]
-                town = cols[1]
+        # 画像のような「愛媛県 / 松山市 / 東大栗町、福角町」の3列パターン
+        if (city == "-" or town == "-") and len(cols) >= 3 and cols[0] == pref_name:
+            city = cols[1]
+            town = cols[2]
+            if len(cols) >= 4:
                 reason = cols[3]
+            if len(cols) >= 5:
                 status = cols[4]
-            elif len(cols) >= 4:
+
+        # 「松山市 / 東大栗町、福角町」の2列パターン
+        elif (city == "-" or town == "-") and len(cols) >= 2:
+            if cols[0] != pref_name and any(suffix in cols[0] for suffix in ["市", "町", "村"]):
                 city = cols[0]
                 town = cols[1]
-                reason = cols[2]
-                status = cols[3]
-            elif len(cols) >= 2:
-                city = cols[0]
-                town = cols[1]
+                if len(cols) >= 3:
+                    reason = cols[2]
+                if len(cols) >= 4:
+                    status = cols[3]
 
-        if city == pref_name and town not in ["-", ""]:
-            match = re.match(r"(.+?[市町村])\s*(.*)", town)
-            if match:
-                city = match.group(1)
-                town = match.group(2).strip() or town
+        # 6列以上のパターン: 発生日時 / 停電戸数 / 県 / 市町村 / 町名 / 詳細など
+        if len(cols) >= 6 and cols[2] == pref_name:
+            occurred_at = cols[0]
+            outage_count = cols[1]
+            city = cols[3]
+            town = cols[4]
+            reason = cols[5] if len(cols) >= 6 else reason
+            status = cols[6] if len(cols) >= 7 else status
 
-        towns = split_towns(town)
-        if city not in ["-", ""] and town not in ["-", ""]:
-            records.append({
-                "prefecture": pref_name,
-                "city": city,
-                "town": town,
-                "towns": towns,
-                "raw_towns": town,
-                "reason": reason,
-                "status": status,
-                "announced_at": announced_at,
-            })
+        record = make_outage_record(
+            pref_name=pref_name,
+            city=city,
+            town=town,
+            reason=reason,
+            status=status,
+            announced_at=announced_at,
+            occurred_at=occurred_at,
+            outage_count=outage_count,
+        )
+        if record:
+            records.append(record)
+            last_record_index = len(records) - 1
+
     return records
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+def parse_outage_text_fallback(body_text, pref_name, announced_at):
+    """table解析で取れない場合の保険。画面テキストから最低限の市町村・町名を抽出する。"""
+    text = normalize_text(body_text)
+    if "停電情報はありません" in text:
+        return []
+
+    occurred_at = extract_time_text(text)
+    outage_count = extract_count_text(text)
+    reason = "-"
+    status = "-"
+
+    m_reason = re.search(r"停電理由\s*[：:]?\s*([^。]+?)(?:対応状況|$)", text)
+    if m_reason:
+        reason = normalize_text(m_reason.group(1))
+    m_status = re.search(r"対応状況\s*[：:]?\s*(.+)$", text)
+    if m_status:
+        status = normalize_text(m_status.group(1))
+
+    # 例: 愛媛県 松山市 東大栗町、福角町 停電理由 ...
+    m = re.search(rf"{re.escape(pref_name)}\s+([^\s]+?[市町村])\s+(.+?)(?:\s+停電理由|\s+対応状況|$)", text)
+    if not m:
+        return []
+    city = normalize_text(m.group(1))
+    town = normalize_text(m.group(2))
+    return [make_outage_record(pref_name, city, town, reason, status, announced_at, occurred_at, outage_count)]
+
+
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_outage_info():
     outage_list = []
     errors = []
@@ -297,32 +460,46 @@ def fetch_outage_info():
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
-        )
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
     }
 
     for pref_name, url in PREFECTURE_URLS.items():
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests.get(url, headers=headers, timeout=15)
+            if response.status_code != 200:
+                errors.append(f"{pref_name}: HTTP {response.status_code}")
+                continue
+
             response.encoding = response.apparent_encoding
             soup = BeautifulSoup(response.text, "html.parser")
             body_text = soup.get_text(" ", strip=True)
-
             time_match = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日\s*\d{1,2}時\d{1,2}分\s*現在)", body_text)
             announced_at = time_match.group(1) if time_match else "日時不明"
-            no_outage = "停電情報はありません" in body_text
 
-            if no_outage:
-                continue
-
+            pref_records = []
             tables = soup.find_all("table")
             for table in tables:
-                records = parse_outage_table(table, pref_name, announced_at)
-                outage_list.extend(records)
+                pref_records.extend(parse_outage_table(table, pref_name, announced_at))
+
+            if not pref_records:
+                pref_records.extend(parse_outage_text_fallback(body_text, pref_name, announced_at))
+
+            outage_list.extend(pref_records)
+
         except Exception as e:
             errors.append(f"{pref_name}: {e}")
             continue
 
-    return outage_list, errors
+    # 重複除去
+    unique = {}
+    for item in outage_list:
+        key = get_outage_area_key(item)
+        unique[key] = item
+    return list(unique.values()), errors
 
 # ---------------------------------------------------------
 # 2. デモ用データ・添付ファイルDL関数
@@ -616,6 +793,8 @@ else:
                 "都道府県": item.get("prefecture", "-"),
                 "市区町村": item.get("city", "-"),
                 "対象町名": item.get("town", item.get("raw_towns", "-")),
+                "発生日時": item.get("occurred_at", "-"),
+                "停電戸数": item.get("outage_count", "-"),
                 "停電理由": item.get("reason", "-"),
                 "対応状況": item.get("status", "-"),
                 "サイト発表日時": item.get("announced_at", "-"),
@@ -631,6 +810,8 @@ else:
                 "都道府県": st.column_config.TextColumn("都道府県", width="small"),
                 "市区町村": st.column_config.TextColumn("市区町村", width="small"),
                 "対象町名": st.column_config.TextColumn("対象町名", width="small"),
+                "発生日時": st.column_config.TextColumn("発生日時", width="small"),
+                "停電戸数": st.column_config.TextColumn("停電戸数", width="small"),
                 "停電理由": st.column_config.TextColumn("停電理由", width="small"),
                 "対応状況": st.column_config.TextColumn("対応状況", width="medium"),
                 "サイト発表日時": st.column_config.TextColumn("サイト発表日時", width="small"),
