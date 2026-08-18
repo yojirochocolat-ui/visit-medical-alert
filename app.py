@@ -1013,7 +1013,7 @@ def get_outage_area_radius(item):
 
 
 def find_outage_center_from_patients(patient_df, pref, city, town):
-    """患者住所に対象町名が含まれる場合は、その患者群の中心を停電エリア中心にする。"""
+    """患者住所に対象地域が含まれる場合は、その患者群の中心と広がりを停電エリア表示に使う。"""
     if patient_df is None or patient_df.empty:
         return None
     if "住所" not in patient_df.columns or "lat" not in patient_df.columns or "lon" not in patient_df.columns:
@@ -1023,16 +1023,17 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
     city_text = normalize_text(city)
     pref_text = normalize_text(pref)
 
-    if not town_text or town_text == "-":
+    target_text = town_text if town_text and town_text != "-" else city_text
+    if not target_text or target_text == "-":
         return None
 
     df = patient_df.copy()
     address_series = df["住所"].astype(str)
-    mask = address_series.str.contains(re.escape(town_text), regex=True, na=False)
 
-    # 市町村が正しく入っている場合は、市町村でも絞り込む。シミュレーションでは city=町名 の場合があるため、その場合は絞り込まない。
-    if city_text and city_text != "-" and city_text != town_text and any(s in city_text for s in ["市", "町", "村"]):
-        mask = mask & address_series.str.contains(re.escape(city_text), regex=True, na=False)
+    # 「高松市」のような市町村シミュレーションでは、市町村名で広く抽出する。
+    # 「宮脇町」のような町名シミュレーションでは町名で抽出する。
+    mask = address_series.str.contains(re.escape(target_text), regex=True, na=False)
+
     if pref_text and pref_text != "-":
         pref_mask = address_series.str.contains(re.escape(pref_text), regex=True, na=False)
         if pref_mask.any():
@@ -1042,19 +1043,36 @@ def find_outage_center_from_patients(patient_df, pref, city, town):
     if matched.empty:
         return None
 
-    lat = pd.to_numeric(matched["lat"], errors="coerce").dropna()
-    lon = pd.to_numeric(matched["lon"], errors="coerce").dropna()
-    if lat.empty or lon.empty:
+    lat_series = pd.to_numeric(matched["lat"], errors="coerce").dropna()
+    lon_series = pd.to_numeric(matched["lon"], errors="coerce").dropna()
+    if lat_series.empty or lon_series.empty:
         return None
 
-    # 代表住所から市町村名も補完する
+    center_lat = float(lat_series.mean())
+    center_lon = float(lon_series.mean())
+
+    # 患者住所の広がりから半径を概算。1度緯度を約111kmとして簡易計算。
+    max_distance_m = 0
+    for lat, lon in zip(lat_series, lon_series):
+        dlat = (float(lat) - center_lat) * 111000
+        dlon = (float(lon) - center_lon) * 111000 * max(0.2, abs(__import__('math').cos(__import__('math').radians(center_lat))))
+        distance_m = (dlat ** 2 + dlon ** 2) ** 0.5
+        max_distance_m = max(max_distance_m, distance_m)
+
+    # 市町村レベルは広め、町名レベルはコンパクトにする。
+    is_city_level = any(s in target_text for s in ["市", "町", "村"]) and not any(s in target_text for s in ["丁目"])
+    if is_city_level:
+        suggested_radius = max(3500, min(12000, int(max_distance_m + 1500)))
+    else:
+        suggested_radius = max(700, min(2500, int(max_distance_m + 500)))
+
     sample_address = str(matched.iloc[0].get("住所", ""))
     inferred_city = city_text
     m = re.search(r"([一-龥ぁ-んァ-ヶ]+?[市町村])", sample_address)
     if m:
         inferred_city = m.group(1)
 
-    return float(lat.mean()), float(lon.mean()), inferred_city
+    return center_lat, center_lon, inferred_city, suggested_radius
 
 
 def build_geocode_address(pref, city, town, patient_df=None):
@@ -1066,8 +1084,8 @@ def build_geocode_address(pref, city, town, patient_df=None):
     inferred_city = city
     center = find_outage_center_from_patients(patient_df, pref, city, town)
     if center:
-        lat, lon, inferred_city = center
-        return lat, lon, inferred_city, True
+        lat, lon, inferred_city, suggested_radius = center
+        return lat, lon, inferred_city, True, suggested_radius
 
     # シミュレーションで city=宮脇町、town=宮脇町 のように重複する場合は city を使わない。
     use_city = city
@@ -1081,7 +1099,14 @@ def build_geocode_address(pref, city, town, patient_df=None):
 
     area_address = "".join(address_parts)
     lat, lon = geocode_address(area_address)
-    return lat, lon, use_city or city, False
+
+    # 患者住所に一致しない場合でも、市町村レベルの指定は広めにする。
+    target_text = town if town and town != "-" else city
+    if any(s in target_text for s in ["市", "町", "村"]):
+        suggested_radius = 5000
+    else:
+        suggested_radius = None
+    return lat, lon, use_city or city, False, suggested_radius
 
 
 def add_outage_area_layers(m, outage_areas, patient_df=None):
@@ -1116,9 +1141,10 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
             if not town or town == "-":
                 continue
 
-            lat, lon, display_city, used_patient_center = build_geocode_address(pref, city, town, patient_df=patient_df)
+            lat, lon, display_city, used_patient_center, suggested_radius = build_geocode_address(pref, city, town, patient_df=patient_df)
             display_city = display_city if display_city and display_city != "-" else city
-            center_note = "患者住所の分布中心を基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
+            radius = max(base_radius, suggested_radius) if suggested_radius else base_radius
+            center_note = "患者住所の分布中心と広がりを基準に表示" if used_patient_center else "町名のジオコーディング結果を基準に表示"
 
             popup_html = f"""
             <div style='font-size:12px; width:260px; line-height:1.5;'>
