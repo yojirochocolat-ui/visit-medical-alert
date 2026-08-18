@@ -1134,7 +1134,7 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
             towns = [city] if city else []
 
         color, status_label = get_outage_area_color(status)
-        radius = get_outage_area_radius(item)
+        base_radius = get_outage_area_radius(item)
 
         for town in towns:
             town = normalize_text(town)
