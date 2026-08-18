@@ -146,12 +146,18 @@ def normalize_text(value):
 
 
 def format_display_datetime(value):
-    """一覧表示用に短く表示する。例: 2026年8月18日 15時20分 現在 -> 8/18 15:20"""
+    """一覧表示用に短く表示する。例: 2026年8月18日 15時20分 / 2026/08/18 15:20 -> 8/18 15:20"""
     text = normalize_text(value)
-    if not text or text == "-":
-        return "-"
+    if not text or text == "-" or text == "未取得":
+        return text if text else "-"
 
+    # 例: 2026年8月18日 15時20分 現在
     m = re.search(r"(?:\d{4}年)?(\d{1,2})月(\d{1,2})日\s*(\d{1,2})時(\d{1,2})分", text)
+    if m:
+        return f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
+
+    # 例: 2026/08/18 15:20
+    m = re.search(r"(?:\d{4}/)?(\d{1,2})/(\d{1,2})\s+(\d{1,2}):(\d{1,2})", text)
     if m:
         return f"{int(m.group(1))}/{int(m.group(2))} {int(m.group(3)):02d}:{int(m.group(4)):02d}"
 
@@ -884,10 +890,18 @@ else:
                 "停電戸数": item.get("outage_count", "-"),
                 "停電理由": item.get("reason", "-"),
                 "対応状況": item.get("status", "-"),
-                "最終更新": format_display_datetime(item.get("announced_at", "-")),
+                "更新日時": format_display_datetime(item.get("announced_at", "-")),
             }
             for item in outage_data
         ])
+        fetch_time_display = format_display_datetime(st.session_state.get("last_fetch_time", created_time_str))
+        meta_left, meta_right = st.columns([5, 3])
+        with meta_right:
+            st.markdown(
+                f"<div style='text-align:right; font-size:0.9rem; color:#808495;'>最終データ取得日時：{fetch_time_display}</div>",
+                unsafe_allow_html=True,
+            )
+
         st.dataframe(
             outage_df_display,
             use_container_width=True,
@@ -901,11 +915,13 @@ else:
                 "停電戸数": st.column_config.TextColumn("停電戸数", width="small"),
                 "停電理由": st.column_config.TextColumn("停電理由", width="medium"),
                 "対応状況": st.column_config.TextColumn("対応状況", width="large"),
-                "最終更新": st.column_config.TextColumn("最終更新", width="small"),
+                "更新日時": st.column_config.TextColumn("更新日時", width="small"),
             }
         )
     else:
-        st.success(f"現在（{created_time_str} 取得）、停電情報はありません")
+        fetch_time_display = format_display_datetime(st.session_state.get("last_fetch_time", created_time_str))
+        st.caption(f"🕒 最終データ取得日時：{fetch_time_display}")
+        st.success(f"現在（{format_display_datetime(created_time_str)} 取得）、停電情報はありません")
 
 
 def check_outage(address, outage_list):
@@ -1152,7 +1168,7 @@ def add_outage_area_layers(m, outage_areas, patient_df=None):
                 <b>停電戸数:</b> {outage_count}<br>
                 <b>停電理由:</b> {reason}<br>
                 <b>対応状況:</b> {status}<br>
-                <b>最終更新:</b> {announced_at}<br>
+                <b>更新日時:</b> {announced_at}<br>
                 <span style='font-size:11px; color:gray;'>※停電地域の代表地点を示すピンです。公式地図の停電範囲を示すものではありません。</span>
             </div>
             """
